@@ -51,14 +51,65 @@ pub fn has_live_credentials(settings: &LlmSettings) -> bool {
 }
 
 pub fn endpoint_has_live_credentials(endpoint: &EndpointConfig) -> bool {
-    endpoint
+    let has_api_key = endpoint
         .api_key
         .as_deref()
         .map(|key| {
             let key = key.trim();
             !key.is_empty() && !key.starts_with("YOUR_")
         })
+        .unwrap_or(false);
+    let has_bedrock_credentials = endpoint
+        .credentials
+        .get("access_key")
+        .and_then(serde_json::Value::as_str)
+        .map(has_real_secret)
         .unwrap_or(false)
+        && endpoint
+            .credentials
+            .get("secret_key")
+            .and_then(serde_json::Value::as_str)
+            .map(has_real_secret)
+            .unwrap_or(false);
+    let has_vertex_refresh_credentials = endpoint
+        .credentials
+        .get("refresh_token")
+        .and_then(serde_json::Value::as_str)
+        .map(has_real_secret)
+        .unwrap_or(false)
+        && endpoint
+            .credentials
+            .get("client_id")
+            .and_then(serde_json::Value::as_str)
+            .map(has_real_secret)
+            .unwrap_or(false)
+        && endpoint
+            .credentials
+            .get("client_secret")
+            .and_then(serde_json::Value::as_str)
+            .map(has_real_secret)
+            .unwrap_or(false);
+    let has_vertex_service_account = endpoint
+        .credentials
+        .get("private_key")
+        .and_then(serde_json::Value::as_str)
+        .map(has_real_secret)
+        .unwrap_or(false)
+        && endpoint
+            .credentials
+            .get("client_email")
+            .and_then(serde_json::Value::as_str)
+            .map(has_real_secret)
+            .unwrap_or(false);
+    has_api_key
+        || has_bedrock_credentials
+        || has_vertex_refresh_credentials
+        || has_vertex_service_account
+}
+
+fn has_real_secret(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty() && !value.starts_with("YOUR_")
 }
 
 pub fn run_with_timer<T>(label: &str, operation: impl FnOnce() -> T) -> T {

@@ -4,4 +4,4 @@ mod tokens;
 
 pub use messages::normalize_text_messages;
 pub use retry::RetryPolicy;
-pub use tokens::count_tokens_fallback;
+pub use tokens::{count_tokens, count_tokens_fallback};

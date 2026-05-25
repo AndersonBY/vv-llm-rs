@@ -1,6 +1,12 @@
+use futures_util::StreamExt;
 use vv_llm::{
-    chat_clients::{create_chat_client, AnthropicChatClient, OpenAiCompatibleChatClient},
-    BackendType, ChatRequest, ChatRequestOptions, Message, MessageContent, MessageRole,
+    chat_clients::{
+        create_chat_client, create_chat_client_from_resolved, AnthropicChatClient,
+        GoogleAccessTokenProvider, OpenAiCompatibleChatClient,
+    },
+    BackendType, ChatClient, ChatRequest, ChatRequestOptions, ChatStreamDelta, ChatTool,
+    EndpointBinding, EndpointConfig, Message, MessageContent, MessageRole, ModelConfig,
+    ResolvedModelConfig, ToolCall,
 };
 
 #[test]
@@ -10,6 +16,8 @@ fn openai_compatible_adapter_builds_json_request_shape() {
         model: "gpt-4o".to_string(),
         messages: vec![Message::text(MessageRole::User, "hello")],
         options: Default::default(),
+        tools: Vec::new(),
+        tool_choice: None,
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -30,6 +38,78 @@ fn factory_routes_anthropic_to_anthropic_adapter() {
 }
 
 #[test]
+fn factory_routes_anthropic_bedrock_endpoint_to_bedrock_adapter() {
+    let client = create_chat_client_from_resolved(ResolvedModelConfig {
+        backend: "anthropic".to_string(),
+        model: ModelConfig {
+            id: "claude-sonnet".to_string(),
+            endpoints: vec![EndpointBinding::Id("bedrock-anthropic".to_string())],
+            context_length: None,
+            max_output_tokens: None,
+            function_call_available: Some(true),
+            response_format_available: Some(false),
+            native_multimodal: Some(true),
+            protocol: None,
+            request_mapping: None,
+            response_mapping: None,
+            extra: Default::default(),
+        },
+        model_id: "global.anthropic.claude-sonnet".to_string(),
+        endpoint: EndpointConfig {
+            id: "bedrock-anthropic".to_string(),
+            api_base: Some("https://bedrock-runtime.us-east-1.amazonaws.com".to_string()),
+            api_key: None,
+            organization: None,
+            endpoint_type: Some("anthropic_bedrock".to_string()),
+            region: Some("us-east-1".to_string()),
+            is_bedrock: Some(true),
+            is_vertex: Some(false),
+            credentials: serde_json::json!({"access_key":"AKIA_TEST","secret_key":"SECRET_TEST"}),
+            extra: Default::default(),
+        },
+    })
+    .unwrap();
+
+    assert_eq!(client.provider_name(), "anthropic-bedrock");
+}
+
+#[test]
+fn factory_routes_openai_vertex_endpoint_to_vertex_adapter() {
+    let client = create_chat_client_from_resolved(ResolvedModelConfig {
+        backend: "openai".to_string(),
+        model: ModelConfig {
+            id: "google/gemini-2.5-flash".to_string(),
+            endpoints: vec![EndpointBinding::Id("vertex-openai".to_string())],
+            context_length: None,
+            max_output_tokens: None,
+            function_call_available: Some(true),
+            response_format_available: Some(false),
+            native_multimodal: Some(true),
+            protocol: None,
+            request_mapping: None,
+            response_mapping: None,
+            extra: Default::default(),
+        },
+        model_id: "google/gemini-2.5-flash".to_string(),
+        endpoint: EndpointConfig {
+            id: "vertex-openai".to_string(),
+            api_base: Some("https://aiplatform.googleapis.com/v1beta1/projects/p/locations/us-central1/endpoints/openapi".to_string()),
+            api_key: None,
+            organization: None,
+            endpoint_type: Some("openai_vertex".to_string()),
+            region: Some("us-central1".to_string()),
+            is_bedrock: Some(false),
+            is_vertex: Some(true),
+            credentials: serde_json::json!({"access_token":"cached-token","access_token_expires_at":4102444800.0}),
+            extra: Default::default(),
+        },
+    })
+    .unwrap();
+
+    assert_eq!(client.provider_name(), "openai-vertex");
+}
+
+#[test]
 fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
     let client =
         OpenAiCompatibleChatClient::new("fallback-model", "https://api.openai.com/v1", "sk-test");
@@ -45,6 +125,7 @@ fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
                 }],
                 name: None,
                 tool_call_id: Some("call-1".to_string()),
+                tool_calls: Vec::new(),
             },
         ],
         options: ChatRequestOptions {
@@ -52,6 +133,8 @@ fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
             max_tokens: Some(64),
             stream: Some(true),
         },
+        tools: Vec::new(),
+        tool_choice: None,
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -84,6 +167,8 @@ fn anthropic_adapter_extracts_system_prompt_and_user_messages() {
             max_tokens: Some(128),
             stream: Some(false),
         },
+        tools: Vec::new(),
+        tool_choice: None,
     };
 
     let json = client.to_anthropic_json(&request).unwrap();
@@ -95,4 +180,350 @@ fn anthropic_adapter_extracts_system_prompt_and_user_messages() {
     assert_eq!(json["messages"][1]["role"], "assistant");
     assert_eq!(json["max_tokens"], 128);
     assert_eq!(json["temperature"], 0.5);
+}
+
+#[test]
+fn anthropic_adapter_maps_image_content_for_native_multimodal_models() {
+    let client =
+        AnthropicChatClient::new("claude-sonnet-4-6", "https://api.anthropic.com", "sk-test");
+    let request = ChatRequest {
+        model: "claude-sonnet-4-6".to_string(),
+        messages: vec![Message {
+            role: MessageRole::User,
+            content: vec![
+                MessageContent::Text {
+                    text: "describe this image".to_string(),
+                },
+                MessageContent::ImageUrl {
+                    url: "data:image/png;base64,AAAA".to_string(),
+                },
+            ],
+            name: None,
+            tool_call_id: None,
+            tool_calls: Vec::new(),
+        }],
+        options: ChatRequestOptions {
+            max_tokens: Some(128),
+            ..Default::default()
+        },
+        tools: Vec::new(),
+        tool_choice: None,
+    };
+
+    let json = client.to_anthropic_json(&request).unwrap();
+
+    assert_eq!(json["messages"][0]["content"][0]["type"], "text");
+    assert_eq!(json["messages"][0]["content"][1]["type"], "image");
+    assert_eq!(
+        json["messages"][0]["content"][1]["source"]["media_type"],
+        "image/png"
+    );
+    assert_eq!(json["messages"][0]["content"][1]["source"]["data"], "AAAA");
+}
+
+#[test]
+fn anthropic_adapter_maps_tools_and_multi_turn_tool_messages() {
+    let client =
+        AnthropicChatClient::new("claude-sonnet-4-6", "https://api.anthropic.com", "sk-test");
+    let request = ChatRequest {
+        model: "claude-sonnet-4-6".to_string(),
+        messages: vec![
+            Message::text(MessageRole::User, "What is the weather?"),
+            Message {
+                role: MessageRole::Assistant,
+                content: Vec::new(),
+                name: None,
+                tool_call_id: None,
+                tool_calls: vec![ToolCall::function(
+                    "toolu_1",
+                    "get_current_weather",
+                    r#"{"location":"New York"}"#,
+                )],
+            },
+            Message {
+                role: MessageRole::Tool,
+                content: vec![MessageContent::Text {
+                    text: "72F and sunny".to_string(),
+                }],
+                name: None,
+                tool_call_id: Some("toolu_1".to_string()),
+                tool_calls: Vec::new(),
+            },
+        ],
+        options: ChatRequestOptions {
+            max_tokens: Some(128),
+            ..Default::default()
+        },
+        tools: vec![ChatTool::function(
+            "get_current_weather",
+            "Get the current weather in a given location",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string"}
+                },
+                "required": ["location"]
+            }),
+        )],
+        tool_choice: Some("auto".to_string()),
+    };
+
+    let json = client.to_anthropic_json(&request).unwrap();
+
+    assert_eq!(json["tools"][0]["name"], "get_current_weather");
+    assert_eq!(json["tool_choice"]["type"], "auto");
+    assert_eq!(json["messages"][1]["content"][0]["type"], "tool_use");
+    assert_eq!(json["messages"][1]["content"][0]["id"], "toolu_1");
+    assert_eq!(
+        json["messages"][1]["content"][0]["input"]["location"],
+        "New York"
+    );
+    assert_eq!(json["messages"][2]["role"], "user");
+    assert_eq!(json["messages"][2]["content"][0]["type"], "tool_result");
+    assert_eq!(json["messages"][2]["content"][0]["tool_use_id"], "toolu_1");
+}
+
+#[test]
+fn openai_adapter_maps_image_content_for_vision_models() {
+    let client =
+        OpenAiCompatibleChatClient::new("qwen3-vl-flash", "https://example.com/v1", "sk-test");
+    let request = ChatRequest {
+        model: "qwen3-vl-flash".to_string(),
+        messages: vec![Message {
+            role: MessageRole::User,
+            content: vec![
+                MessageContent::Text {
+                    text: "describe this image".to_string(),
+                },
+                MessageContent::ImageUrl {
+                    url: "data:image/png;base64,AAAA".to_string(),
+                },
+            ],
+            name: None,
+            tool_call_id: None,
+            tool_calls: Vec::new(),
+        }],
+        options: Default::default(),
+        tools: Vec::new(),
+        tool_choice: None,
+    };
+
+    let json = client.to_openai_json(&request).unwrap();
+
+    assert_eq!(json["messages"][0]["content"][0]["type"], "text");
+    assert_eq!(json["messages"][0]["content"][1]["type"], "image_url");
+    assert_eq!(
+        json["messages"][0]["content"][1]["image_url"]["url"],
+        "data:image/png;base64,AAAA"
+    );
+}
+
+#[test]
+fn openai_adapter_maps_tools_and_tool_choice() {
+    let client =
+        OpenAiCompatibleChatClient::new("deepseek-chat", "https://example.com/v1", "sk-test");
+    let request = ChatRequest {
+        model: "deepseek-chat".to_string(),
+        messages: vec![Message::text(
+            MessageRole::User,
+            "What is the weather in New York?",
+        )],
+        options: Default::default(),
+        tools: vec![ChatTool::function(
+            "get_current_weather",
+            "Get the current weather in a given location",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string"}
+                },
+                "required": ["location"]
+            }),
+        )],
+        tool_choice: Some("auto".to_string()),
+    };
+
+    let json = client.to_openai_json(&request).unwrap();
+
+    assert_eq!(json["tools"][0]["type"], "function");
+    assert_eq!(json["tools"][0]["function"]["name"], "get_current_weather");
+    assert_eq!(json["tool_choice"], "auto");
+}
+
+#[test]
+fn openai_adapter_maps_multi_turn_tool_messages() {
+    let client =
+        OpenAiCompatibleChatClient::new("deepseek-chat", "https://example.com/v1", "sk-test");
+    let request = ChatRequest {
+        model: "deepseek-chat".to_string(),
+        messages: vec![
+            Message::text(MessageRole::User, "What is the weather?"),
+            Message {
+                role: MessageRole::Assistant,
+                content: Vec::new(),
+                name: None,
+                tool_call_id: None,
+                tool_calls: vec![ToolCall::function(
+                    "call_1",
+                    "get_current_weather",
+                    r#"{"location":"New York"}"#,
+                )],
+            },
+            Message {
+                role: MessageRole::Tool,
+                content: vec![MessageContent::Text {
+                    text: "72F and sunny".to_string(),
+                }],
+                name: None,
+                tool_call_id: Some("call_1".to_string()),
+                tool_calls: Vec::new(),
+            },
+        ],
+        options: Default::default(),
+        tools: Vec::new(),
+        tool_choice: None,
+    };
+
+    let json = client.to_openai_json(&request).unwrap();
+
+    assert_eq!(json["messages"][1]["role"], "assistant");
+    assert_eq!(json["messages"][1]["tool_calls"][0]["id"], "call_1");
+    assert_eq!(
+        json["messages"][1]["tool_calls"][0]["function"]["name"],
+        "get_current_weather"
+    );
+    assert_eq!(json["messages"][2]["role"], "tool");
+    assert_eq!(json["messages"][2]["tool_call_id"], "call_1");
+}
+
+#[test]
+fn openai_stream_chunk_json_normalizes_content_tools_and_usage() {
+    let chunk = serde_json::json!({
+        "id": "chatcmpl-test",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "gpt-4o",
+        "choices": [{
+            "index": 0,
+            "delta": {
+                "content": "hel",
+                "tool_calls": [{
+                    "index": 0,
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": "{\"q\""}
+                }]
+            },
+            "finish_reason": null
+        }],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}
+    });
+
+    let delta = OpenAiCompatibleChatClient::normalize_stream_chunk_json(chunk).unwrap();
+
+    assert_eq!(delta.content, "hel");
+    assert_eq!(
+        delta.tool_calls,
+        vec![ToolCall::function("call_1", "lookup", "{\"q\"")]
+    );
+    let usage = delta.usage.unwrap();
+    assert_eq!(usage.prompt_tokens, Some(3));
+    assert_eq!(usage.completion_tokens, Some(4));
+    assert_eq!(usage.total_tokens, Some(7));
+}
+
+#[test]
+fn openai_stream_chunk_json_extracts_reasoning_tags() {
+    let chunk = serde_json::json!({
+        "id": "chatcmpl-test",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "deepseek-chat",
+        "choices": [{
+            "index": 0,
+            "delta": {"content": "answer <think>hidden reasoning</think> final"},
+            "finish_reason": null
+        }]
+    });
+
+    let delta = OpenAiCompatibleChatClient::normalize_stream_chunk_json(chunk).unwrap();
+
+    assert_eq!(delta.content, "answer  final");
+    assert_eq!(delta.reasoning_content, "hidden reasoning");
+}
+
+#[test]
+fn gemini_stream_chunk_json_extracts_thought_tags() {
+    let chunk = serde_json::json!({
+        "id": "chatcmpl-test",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "gemini-3-pro",
+        "choices": [{
+            "index": 0,
+            "delta": {"content": "<thought>hidden</thought>visible"},
+            "finish_reason": null
+        }]
+    });
+
+    let delta = OpenAiCompatibleChatClient::normalize_stream_chunk_json(chunk).unwrap();
+
+    assert_eq!(delta.content, "visible");
+    assert_eq!(delta.reasoning_content, "hidden");
+}
+
+#[tokio::test]
+async fn chat_client_trait_supports_stream_return_type() {
+    struct StaticStreamClient;
+
+    #[async_trait::async_trait]
+    impl vv_llm::ChatClient for StaticStreamClient {
+        fn provider_name(&self) -> &'static str {
+            "static"
+        }
+
+        async fn create_completion(
+            &self,
+            _request: ChatRequest,
+        ) -> Result<vv_llm::ChatResponse, vv_llm::VvLlmError> {
+            unreachable!("stream test only")
+        }
+
+        async fn create_stream(
+            &self,
+            _request: ChatRequest,
+        ) -> Result<vv_llm::ChatStream, vv_llm::VvLlmError> {
+            Ok(Box::pin(futures_util::stream::iter([Ok(
+                ChatStreamDelta {
+                    content: "pong".to_string(),
+                    ..Default::default()
+                },
+            )])))
+        }
+    }
+
+    let client = StaticStreamClient;
+    let mut stream = client
+        .create_stream(ChatRequest::new(
+            "unit",
+            vec![Message::text(MessageRole::User, "ping")],
+        ))
+        .await
+        .unwrap();
+    let delta = stream.next().await.unwrap().unwrap();
+    assert_eq!(delta.content, "pong");
+}
+
+#[tokio::test]
+async fn vertex_token_provider_reuses_valid_cached_token() {
+    let provider = GoogleAccessTokenProvider::new(serde_json::json!({
+        "access_token": "cached-token",
+        "access_token_expires_at": 4102444800.0
+    }))
+    .unwrap();
+
+    let token = provider.access_token().await.unwrap();
+
+    assert_eq!(token.token, "cached-token");
+    assert_eq!(token.expires_at, 4102444800.0);
 }

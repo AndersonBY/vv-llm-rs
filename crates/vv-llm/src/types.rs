@@ -94,6 +94,8 @@ pub struct Message {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
 }
 
 impl Message {
@@ -103,6 +105,7 @@ impl Message {
             content: vec![MessageContent::Text { text: text.into() }],
             name: None,
             tool_call_id: None,
+            tool_calls: Vec::new(),
         }
     }
 
@@ -137,6 +140,65 @@ pub struct ChatRequest {
     pub messages: Vec<Message>,
     #[serde(default)]
     pub options: ChatRequestOptions,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ChatTool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<String>,
+}
+
+impl ChatRequest {
+    pub fn new(model: impl Into<String>, messages: Vec<Message>) -> Self {
+        Self {
+            model: model.into(),
+            messages,
+            options: ChatRequestOptions::default(),
+            tools: Vec::new(),
+            tool_choice: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatTool {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub parameters: serde_json::Value,
+}
+
+impl ChatTool {
+    pub fn function(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: serde_json::Value,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: Some(description.into()),
+            parameters,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: String,
+}
+
+impl ToolCall {
+    pub fn function(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        arguments: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            arguments: arguments.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -144,8 +206,26 @@ pub struct ChatResponse {
     pub id: String,
     pub model: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<ChatUsage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ChatStreamDelta {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub content: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reasoning_content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<ChatUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_content: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub done: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -156,6 +236,10 @@ pub struct ChatUsage {
     pub completion_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total_tokens: Option<u32>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

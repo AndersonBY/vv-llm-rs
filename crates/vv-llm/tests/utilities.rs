@@ -1,5 +1,5 @@
 use vv_llm::{
-    utilities::{count_tokens_fallback, normalize_text_messages, RetryPolicy},
+    utilities::{count_tokens, count_tokens_fallback, normalize_text_messages, RetryPolicy},
     Message, MessageRole,
 };
 
@@ -22,6 +22,24 @@ fn normalizes_adjacent_text_messages_by_role() {
 fn fallback_token_counter_is_deterministic() {
     assert_eq!(count_tokens_fallback("hello world"), 2);
     assert_eq!(count_tokens_fallback(""), 0);
+}
+
+#[test]
+fn tiktoken_counter_matches_openai_encodings() {
+    assert_eq!(count_tokens("hello world", "gpt-3.5-turbo").unwrap(), 2);
+    assert_eq!(count_tokens("hello world", "gpt-4o").unwrap(), 2);
+    assert_eq!(
+        count_tokens("antidisestablishmentarianism", "gpt-4o").unwrap(),
+        6
+    );
+}
+
+#[test]
+fn token_counter_falls_back_for_unknown_models() {
+    assert_eq!(
+        count_tokens("hello world", "unknown-provider-model").unwrap(),
+        2
+    );
 }
 
 #[test]
@@ -48,6 +66,7 @@ fn normalization_does_not_merge_different_roles_or_images() {
             }],
             name: None,
             tool_call_id: None,
+            tool_calls: Vec::new(),
         },
     ];
 

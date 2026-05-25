@@ -13,6 +13,16 @@ pub struct EndpointConfig {
     #[serde(default)]
     pub organization: Option<String>,
     #[serde(default)]
+    pub endpoint_type: Option<String>,
+    #[serde(default)]
+    pub region: Option<String>,
+    #[serde(default)]
+    pub is_bedrock: Option<bool>,
+    #[serde(default)]
+    pub is_vertex: Option<bool>,
+    #[serde(default)]
+    pub credentials: Value,
+    #[serde(default)]
     pub extra: HashMap<String, Value>,
 }
 

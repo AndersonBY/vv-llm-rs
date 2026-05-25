@@ -167,3 +167,91 @@ fn endpoint_bindings_accept_string_and_object_forms() {
     assert_eq!(string_binding.endpoint.id, "enabled");
     assert_eq!(string_binding.model_id, "qwen-max");
 }
+
+#[test]
+fn endpoint_preserves_anthropic_bedrock_transport_fields() {
+    let raw = r#"{
+      "VERSION": "2",
+      "endpoints": [
+        {
+          "id":"bedrock-anthropic",
+          "api_base":"https://bedrock-runtime.us-east-1.amazonaws.com",
+          "endpoint_type":"anthropic_bedrock",
+          "is_bedrock":true,
+          "region":"us-east-1",
+          "credentials":{"access_key":"AKIA_TEST","secret_key":"SECRET_TEST"}
+        }
+      ],
+      "backends": {
+        "anthropic": {
+          "models": {
+            "claude-sonnet": {
+              "id":"claude-sonnet",
+              "endpoints":[{"endpoint_id":"bedrock-anthropic","model_id":"global.anthropic.claude-sonnet"}]
+            }
+          }
+        }
+      }
+    }"#;
+
+    let settings = LlmSettings::from_json_str(raw).unwrap();
+    let resolved = settings
+        .resolve_chat_model(BackendType::Anthropic, "claude-sonnet")
+        .unwrap();
+
+    assert_eq!(
+        resolved.endpoint.endpoint_type.as_deref(),
+        Some("anthropic_bedrock")
+    );
+    assert_eq!(resolved.endpoint.region.as_deref(), Some("us-east-1"));
+    assert_eq!(resolved.endpoint.is_bedrock, Some(true));
+    assert_eq!(
+        resolved.endpoint.credentials["access_key"].as_str(),
+        Some("AKIA_TEST")
+    );
+    assert_eq!(resolved.model_id, "global.anthropic.claude-sonnet");
+}
+
+#[test]
+fn endpoint_preserves_openai_vertex_transport_fields() {
+    let raw = r#"{
+      "VERSION": "2",
+      "endpoints": [
+        {
+          "id":"vertex-openai",
+          "api_base":"https://aiplatform.googleapis.com/v1beta1/projects/p/locations/global/endpoints/openapi",
+          "endpoint_type":"openai_vertex",
+          "is_vertex":true,
+          "region":"global",
+          "credentials":{"refresh_token":"refresh","client_id":"client","client_secret":"secret"}
+        }
+      ],
+      "backends": {
+        "gemini": {
+          "models": {
+            "gemini-3-pro": {
+              "id":"gemini-3-pro",
+              "endpoints":[{"endpoint_id":"vertex-openai","model_id":"gemini-3-pro-preview"}]
+            }
+          }
+        }
+      }
+    }"#;
+
+    let settings = LlmSettings::from_json_str(raw).unwrap();
+    let resolved = settings
+        .resolve_chat_model(BackendType::Gemini, "gemini-3-pro")
+        .unwrap();
+
+    assert_eq!(
+        resolved.endpoint.endpoint_type.as_deref(),
+        Some("openai_vertex")
+    );
+    assert_eq!(resolved.endpoint.region.as_deref(), Some("global"));
+    assert_eq!(resolved.endpoint.is_vertex, Some(true));
+    assert_eq!(
+        resolved.endpoint.credentials["refresh_token"].as_str(),
+        Some("refresh")
+    );
+    assert_eq!(resolved.model_id, "gemini-3-pro-preview");
+}
