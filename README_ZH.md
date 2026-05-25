@@ -6,10 +6,10 @@
 
 ```toml
 [dependencies]
-vv-llm = { path = "crates/vv-llm" }
+vv-llm = "0.1.0"
 ```
 
-包名是 `vv-llm`，Rust 代码中以 `vv_llm` 导入。
+包已经发布到官方 crates.io，名称是 `vv-llm`，Rust 代码中以 `vv_llm` 导入。本仓库本地开发时可以使用 `vv-llm = { path = "crates/vv-llm" }`。
 
 ## 支持的后端
 

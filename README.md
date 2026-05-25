@@ -6,10 +6,10 @@ Universal LLM client layer for Rust. One typed API for chat, streaming, embeddin
 
 ```toml
 [dependencies]
-vv-llm = { path = "crates/vv-llm" }
+vv-llm = "0.1.0"
 ```
 
-The crate is published as `vv-llm`; Rust code imports it as `vv_llm`.
+The crate is published on crates.io as `vv-llm`; Rust code imports it as `vv_llm`. For local development in this repository, use `vv-llm = { path = "crates/vv-llm" }`.
 
 ## Supported Backends
 
