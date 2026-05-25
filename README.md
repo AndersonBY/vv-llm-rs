@@ -346,6 +346,8 @@ VV_LLM_RUN_LIVE_TESTS=1 ./scripts/run_live_tests.sh
 
 Engineering documentation lives in [`docs/`](./docs/README.md). Start there for architecture notes, provider adapter behavior, live-test policy, security rules, and maintenance workflows.
 
+Releases are published to crates.io by the tag workflow documented in [`docs/RELEASE.md`](./docs/RELEASE.md).
+
 ## License
 
 MIT

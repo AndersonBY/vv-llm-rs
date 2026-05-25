@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "Rust implementation surface for vv-llm"
+repository = "https://github.com/AndersonBY/vv-llm-rs"
+homepage = "https://github.com/AndersonBY/vv-llm-rs"
+documentation = "https://docs.rs/vv-llm"
+readme = "../../README.md"
+keywords = ["llm", "openai", "anthropic", "bedrock", "vertex"]
+categories = ["api-bindings", "asynchronous"]
 
 [lib]
 name = "vv_llm"

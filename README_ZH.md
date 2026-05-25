@@ -343,6 +343,8 @@ VV_LLM_RUN_LIVE_TESTS=1 ./scripts/run_live_tests.sh
 
 工程文档放在 [`docs/`](./docs/README.md)。架构说明、provider adapter 行为、live test 规则、安全约束和维护流程都从这里进入。
 
+发布到 crates.io 的流程由 tag 触发，说明见 [`docs/RELEASE.md`](./docs/RELEASE.md)。
+
 ## License
 
 MIT

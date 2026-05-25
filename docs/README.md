@@ -9,6 +9,7 @@ These docs are the project knowledge base for `vv-llm-rs`. `AGENTS.md` is only t
 - `TESTING.md` - local tests, live integration tests, fixture policy, and coverage expectations.
 - `DEVELOPMENT.md` - common workflows for adding providers, changing streaming, changing settings, and updating tokenizer behavior.
 - `SECURITY.md` - credential handling, secret-bearing fixtures, logs, auth flows, and safe debugging.
+- `RELEASE.md` - crates.io release setup, version tags, and publish workflow behavior.
 
 ## Documentation Principles
 
