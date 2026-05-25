@@ -126,3 +126,44 @@ fn missing_backend_and_endpoint_return_specific_errors() {
     assert!(missing_model.contains("model not found"));
     assert!(missing_endpoint.contains("endpoint not found: missing-endpoint"));
 }
+
+#[test]
+fn endpoint_bindings_accept_string_and_object_forms() {
+    let raw = r#"{
+      "VERSION": "2",
+      "endpoints": [
+        {"id":"disabled","api_base":"https://disabled.example.com/v1","api_key":"sk-disabled"},
+        {"id":"enabled","api_base":"https://enabled.example.com/v1","api_key":"sk-enabled"}
+      ],
+      "backends": {
+        "qwen": {
+          "models": {
+            "qwq-32b": {
+              "id":"qwq-32b",
+              "endpoints":[
+                {"endpoint_id":"disabled","model_id":"provider-disabled","enabled":false},
+                {"endpoint_id":"enabled","model_id":"Qwen/QwQ-32B","enabled":true}
+              ]
+            },
+            "qwen-max": {
+              "id":"qwen-max",
+              "endpoints":["enabled"]
+            }
+          }
+        }
+      }
+    }"#;
+
+    let settings = LlmSettings::from_json_str(raw).unwrap();
+    let object_binding = settings
+        .resolve_chat_model(BackendType::Qwen, "qwq-32b")
+        .unwrap();
+    let string_binding = settings
+        .resolve_chat_model(BackendType::Qwen, "qwen-max")
+        .unwrap();
+
+    assert_eq!(object_binding.endpoint.id, "enabled");
+    assert_eq!(object_binding.model_id, "Qwen/QwQ-32B");
+    assert_eq!(string_binding.endpoint.id, "enabled");
+    assert_eq!(string_binding.model_id, "qwen-max");
+}

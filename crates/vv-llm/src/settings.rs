@@ -28,7 +28,7 @@ pub struct BackendConfig {
 pub struct ModelConfig {
     pub id: String,
     #[serde(default)]
-    pub endpoints: Vec<String>,
+    pub endpoints: Vec<EndpointBinding>,
     #[serde(default)]
     pub context_length: Option<u32>,
     #[serde(default)]
@@ -69,7 +69,46 @@ pub struct LlmSettings {
 pub struct ResolvedModelConfig {
     pub backend: String,
     pub model: ModelConfig,
+    pub model_id: String,
     pub endpoint: EndpointConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EndpointBinding {
+    Id(String),
+    Config {
+        endpoint_id: String,
+        #[serde(default)]
+        model_id: Option<String>,
+        #[serde(default)]
+        enabled: Option<bool>,
+        #[serde(flatten)]
+        extra: HashMap<String, Value>,
+    },
+}
+
+impl EndpointBinding {
+    pub fn endpoint_id(&self) -> &str {
+        match self {
+            Self::Id(endpoint_id) => endpoint_id,
+            Self::Config { endpoint_id, .. } => endpoint_id,
+        }
+    }
+
+    pub fn model_id<'a>(&'a self, default_model_id: &'a str) -> &'a str {
+        match self {
+            Self::Id(_) => default_model_id,
+            Self::Config { model_id, .. } => model_id.as_deref().unwrap_or(default_model_id),
+        }
+    }
+
+    pub fn enabled(&self) -> bool {
+        match self {
+            Self::Id(_) => true,
+            Self::Config { enabled, .. } => enabled.unwrap_or(true),
+        }
+    }
 }
 
 impl LlmSettings {
@@ -130,18 +169,24 @@ impl LlmSettings {
                 backend: backend.to_string(),
                 model: model_id.to_string(),
             })?;
-        let endpoint_id = model.endpoints.first().ok_or_else(|| {
-            VvLlmError::Configuration(format!("model {model_id} has no endpoints"))
-        })?;
+        let binding = model
+            .endpoints
+            .iter()
+            .find(|binding| binding.enabled())
+            .ok_or_else(|| {
+                VvLlmError::Configuration(format!("model {model_id} has no enabled endpoints"))
+            })?;
+        let endpoint_id = binding.endpoint_id();
         let endpoint = self
             .endpoints
             .iter()
-            .find(|endpoint| endpoint.id == *endpoint_id)
-            .ok_or_else(|| VvLlmError::EndpointNotFound(endpoint_id.clone()))?;
+            .find(|endpoint| endpoint.id == endpoint_id)
+            .ok_or_else(|| VvLlmError::EndpointNotFound(endpoint_id.to_string()))?;
 
         Ok(ResolvedModelConfig {
             backend: backend.to_string(),
             model: model.clone(),
+            model_id: binding.model_id(&model.id).to_string(),
             endpoint: endpoint.clone(),
         })
     }

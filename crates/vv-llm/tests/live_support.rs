@@ -79,7 +79,7 @@ pub fn require_live() {
 
 pub fn resolved_parts(resolved: ResolvedModelConfig) -> (String, String, String) {
     (
-        resolved.model.id,
+        resolved.model_id,
         resolved.endpoint.api_base.unwrap_or_default(),
         resolved.endpoint.api_key.unwrap_or_default(),
     )
