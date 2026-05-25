@@ -1,0 +1,20 @@
+[package]
+name = "vv-llm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Rust implementation surface for vv-llm"
+
+[lib]
+name = "vv_llm"
+path = "src/lib.rs"
+
+[dependencies]
+anthropic = "0.0.8"
+async-openai = { version = "0.40.2", features = ["chat-completion", "embedding"] }
+async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

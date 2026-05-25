@@ -1,0 +1,18 @@
+//! Rust implementation surface for the Python `vv_llm` package.
+
+pub mod chat_clients;
+pub mod embedding_clients;
+pub mod rerank_clients;
+pub mod settings;
+pub mod types;
+pub mod utilities;
+
+pub use chat_clients::{create_chat_client, ChatClient};
+pub use embedding_clients::{create_embedding_client, EmbeddingClient};
+pub use rerank_clients::{create_rerank_client, RerankClient};
+pub use settings::{BackendConfig, EndpointConfig, LlmSettings, ModelConfig, ResolvedModelConfig};
+pub use types::{
+    BackendType, ChatRequest, ChatRequestOptions, ChatResponse, ChatUsage, EmbeddingData,
+    EmbeddingResponse, Message, MessageContent, MessageRole, RerankResponse, RerankResult,
+    VvLlmError,
+};
