@@ -29,3 +29,28 @@ fn retry_policy_reports_attempt_count() {
     let policy = RetryPolicy::new(3);
     assert_eq!(policy.max_attempts(), 3);
 }
+
+#[test]
+fn retry_policy_never_allows_zero_attempts() {
+    let policy = RetryPolicy::new(0);
+    assert_eq!(policy.max_attempts(), 1);
+}
+
+#[test]
+fn normalization_does_not_merge_different_roles_or_images() {
+    let messages = vec![
+        Message::text(MessageRole::User, "hello"),
+        Message::text(MessageRole::Assistant, "world"),
+        Message {
+            role: MessageRole::Assistant,
+            content: vec![vv_llm::MessageContent::ImageUrl {
+                url: "https://example.com/cat.png".to_string(),
+            }],
+            name: None,
+            tool_call_id: None,
+        },
+    ];
+
+    let normalized = normalize_text_messages(messages);
+    assert_eq!(normalized.len(), 3);
+}

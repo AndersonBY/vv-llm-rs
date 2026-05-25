@@ -45,14 +45,27 @@ impl CustomJsonHttpRerankClient {
     }
 
     pub fn build_request_body(&self, query: &str, documents: &[&str]) -> Result<Value, VvLlmError> {
-        Ok(json!({
+        self.build_request_body_with_top_n(query, documents, None)
+    }
+
+    pub fn build_request_body_with_top_n(
+        &self,
+        query: &str,
+        documents: &[&str],
+        top_n: Option<usize>,
+    ) -> Result<Value, VvLlmError> {
+        let mut body = json!({
             "model": self.model,
             "query": query,
             "documents": documents,
-        }))
+        });
+        if let Some(top_n) = top_n {
+            body["top_n"] = json!(top_n);
+        }
+        Ok(body)
     }
 
-    fn endpoint_url(&self) -> String {
+    pub fn endpoint_url(&self) -> String {
         format!(
             "{}{}",
             self.api_base.trim_end_matches('/'),

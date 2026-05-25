@@ -62,7 +62,20 @@ cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
+## Live Tests
+
+Live API tests are compiled by `cargo test` but ignored by default. To run them, create `crates/vv-llm/tests/fixtures/dev_settings.json` from `dev_settings.example.json`, add real API keys, then run:
+
+```bash
+VV_LLM_RUN_LIVE_TESTS=1 ./scripts/run_live_tests.sh
+```
+
+You can also point at another settings file:
+
+```bash
+VV_LLM_RUN_LIVE_TESTS=1 VV_LLM_SETTINGS_JSON=/path/to/settings.json cargo test --test live_tests -- --ignored --test-threads=1
+```
+
 ## License
 
 MIT
-

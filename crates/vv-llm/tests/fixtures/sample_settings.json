@@ -1,0 +1,74 @@
+{
+  "VERSION": "2",
+  "endpoints": [
+    {
+      "id": "openai-test",
+      "api_base": "https://api.openai.com/v1",
+      "api_key": "YOUR_OPENAI_API_KEY"
+    },
+    {
+      "id": "anthropic-test",
+      "api_base": "https://api.anthropic.com",
+      "api_key": "YOUR_ANTHROPIC_API_KEY"
+    },
+    {
+      "id": "siliconflow-test",
+      "api_base": "https://api.siliconflow.cn/v1",
+      "api_key": "YOUR_SILICONFLOW_API_KEY"
+    }
+  ],
+  "backends": {
+    "openai": {
+      "models": {
+        "gpt-4o-mini": {
+          "id": "gpt-4o-mini",
+          "endpoints": ["openai-test"]
+        }
+      }
+    },
+    "anthropic": {
+      "models": {
+        "claude-3-5-haiku-latest": {
+          "id": "claude-3-5-haiku-latest",
+          "endpoints": ["anthropic-test"]
+        }
+      }
+    }
+  },
+  "embedding_backends": {
+    "openai": {
+      "models": {
+        "text-embedding-3-small": {
+          "id": "text-embedding-3-small",
+          "endpoints": ["openai-test"],
+          "protocol": "openai_embeddings"
+        }
+      }
+    },
+    "siliconflow": {
+      "models": {
+        "BAAI/bge-large-zh-v1.5": {
+          "id": "BAAI/bge-large-zh-v1.5",
+          "endpoints": ["siliconflow-test"],
+          "protocol": "openai_embeddings"
+        }
+      }
+    }
+  },
+  "rerank_backends": {
+    "siliconflow": {
+      "models": {
+        "BAAI/bge-reranker-v2-m3": {
+          "id": "BAAI/bge-reranker-v2-m3",
+          "endpoints": ["siliconflow-test"],
+          "protocol": "custom_json_http",
+          "request_mapping": {
+            "method": "POST",
+            "path": "/rerank"
+          }
+        }
+      }
+    }
+  }
+}
+

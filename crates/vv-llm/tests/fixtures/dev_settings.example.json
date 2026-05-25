@@ -1,0 +1,65 @@
+{
+  "VERSION": "2",
+  "endpoints": [
+    {
+      "id": "openai-live",
+      "api_base": "https://api.openai.com/v1",
+      "api_key": "sk-..."
+    },
+    {
+      "id": "anthropic-live",
+      "api_base": "https://api.anthropic.com",
+      "api_key": "sk-ant-..."
+    },
+    {
+      "id": "siliconflow-live",
+      "api_base": "https://api.siliconflow.cn/v1",
+      "api_key": "sk-..."
+    }
+  ],
+  "backends": {
+    "openai": {
+      "models": {
+        "gpt-4o-mini": {
+          "id": "gpt-4o-mini",
+          "endpoints": ["openai-live"]
+        }
+      }
+    },
+    "anthropic": {
+      "models": {
+        "claude-3-5-haiku-latest": {
+          "id": "claude-3-5-haiku-latest",
+          "endpoints": ["anthropic-live"]
+        }
+      }
+    }
+  },
+  "embedding_backends": {
+    "openai": {
+      "models": {
+        "text-embedding-3-small": {
+          "id": "text-embedding-3-small",
+          "endpoints": ["openai-live"],
+          "protocol": "openai_embeddings"
+        }
+      }
+    }
+  },
+  "rerank_backends": {
+    "siliconflow": {
+      "models": {
+        "BAAI/bge-reranker-v2-m3": {
+          "id": "BAAI/bge-reranker-v2-m3",
+          "endpoints": ["siliconflow-live"],
+          "protocol": "custom_json_http",
+          "request_mapping": {
+            "method": "POST",
+            "path": "/rerank"
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -62,7 +62,20 @@ cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
+## Live Tests
+
+真实 API 调用测试会被 `cargo test` 编译和发现，但默认 ignored。运行前先复制 `crates/vv-llm/tests/fixtures/dev_settings.example.json` 为 `dev_settings.json`，填入真实 API key，然后执行：
+
+```bash
+VV_LLM_RUN_LIVE_TESTS=1 ./scripts/run_live_tests.sh
+```
+
+也可以直接指定其他 settings 文件：
+
+```bash
+VV_LLM_RUN_LIVE_TESTS=1 VV_LLM_SETTINGS_JSON=/path/to/settings.json cargo test --test live_tests -- --ignored --test-threads=1
+```
+
 ## License
 
 MIT
-
