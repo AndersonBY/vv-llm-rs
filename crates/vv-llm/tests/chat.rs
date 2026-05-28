@@ -208,6 +208,32 @@ fn openai_compatible_adapter_preserves_reasoning_extra_content_and_extra_body() 
 }
 
 #[test]
+fn openai_compatible_adapter_preserves_empty_reasoning_content() {
+    let client =
+        OpenAiCompatibleChatClient::new("fallback-model", "https://api.openai.com/v1", "sk-test");
+    let request = ChatRequest {
+        model: "deepseek-v4-pro".to_string(),
+        messages: vec![Message {
+            role: MessageRole::Assistant,
+            content: Vec::new(),
+            name: None,
+            tool_call_id: None,
+            tool_calls: Vec::new(),
+            reasoning_content: Some(String::new()),
+        }],
+        options: Default::default(),
+        tools: Vec::new(),
+        tool_choice: None,
+        extra_body: serde_json::Value::Null,
+    };
+
+    let json = client.to_openai_json(&request).unwrap();
+
+    assert_eq!(json["messages"][0]["role"], "assistant");
+    assert_eq!(json["messages"][0]["reasoning_content"], "");
+}
+
+#[test]
 fn openai_completion_json_preserves_reasoning_and_tool_call_extra_content() {
     let response = serde_json::json!({
         "id": "chatcmpl-test",

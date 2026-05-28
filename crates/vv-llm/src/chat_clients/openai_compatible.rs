@@ -505,11 +505,7 @@ fn merge_extra_body(json: &mut Value, extra_body: &Value) {
 }
 
 fn merge_message_extensions(payload: &mut Value, message: &Message) {
-    if let Some(reasoning_content) = message
-        .reasoning_content
-        .as_deref()
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(reasoning_content) = message.reasoning_content.as_deref() {
         if let Some(object) = payload.as_object_mut() {
             object.insert(
                 "reasoning_content".to_string(),
