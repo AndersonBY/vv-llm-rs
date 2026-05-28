@@ -54,9 +54,11 @@ impl OpenAiCompatibleChatClient {
         chunk: serde_json::Value,
     ) -> Result<ChatStreamDelta, VvLlmError> {
         let extra_content = stream_tool_call_extra_content(&chunk);
+        let reasoning_content = stream_reasoning_content(&chunk);
         let chunk: async_openai::types::chat::CreateChatCompletionStreamResponse =
             serde_json::from_value(chunk)?;
         let mut delta = normalize_openai_stream_chunk(chunk);
+        delta.reasoning_content.push_str(&reasoning_content);
         apply_stream_tool_call_extra_content(&mut delta, extra_content);
         Ok(delta)
     }
@@ -402,6 +404,37 @@ fn stream_tool_call_extra_content(chunk: &Value) -> Vec<Option<Value>> {
         .unwrap_or_default()
 }
 
+fn stream_reasoning_content(chunk: &Value) -> String {
+    chunk
+        .pointer("/choices/0/delta/reasoning_content")
+        .or_else(|| chunk.pointer("/choices/0/delta/reasoning"))
+        .and_then(extract_reasoning_content)
+        .unwrap_or_default()
+}
+
+fn extract_reasoning_content(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) if !text.is_empty() => Some(text.clone()),
+        Value::Object(object) => [
+            "reasoning_content",
+            "reasoning",
+            "thinking",
+            "text",
+            "content",
+        ]
+        .iter()
+        .find_map(|key| object.get(*key).and_then(extract_reasoning_content)),
+        Value::Array(items) => {
+            let content = items
+                .iter()
+                .filter_map(extract_reasoning_content)
+                .collect::<String>();
+            (!content.is_empty()).then_some(content)
+        }
+        _ => None,
+    }
+}
+
 fn tool_call_extra_content(tool_calls: &[Value]) -> Vec<Option<Value>> {
     tool_calls
         .iter()
@@ -469,11 +502,7 @@ fn request_needs_byot(request: &ChatRequest) -> bool {
 }
 
 fn message_needs_byot(message: &Message) -> bool {
-    message
-        .reasoning_content
-        .as_deref()
-        .map(|value| !value.is_empty())
-        .unwrap_or(false)
+    message.reasoning_content.as_deref().is_some()
         || message
             .tool_calls
             .iter()

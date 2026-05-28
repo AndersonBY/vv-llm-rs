@@ -700,6 +700,25 @@ fn openai_stream_chunk_json_extracts_reasoning_tags() {
 }
 
 #[test]
+fn openai_stream_chunk_json_preserves_reasoning_content_field() {
+    let chunk = serde_json::json!({
+        "id": "chatcmpl-test",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "deepseek-v4-pro",
+        "choices": [{
+            "index": 0,
+            "delta": {"reasoning_content": "step-1"},
+            "finish_reason": null
+        }]
+    });
+
+    let delta = OpenAiCompatibleChatClient::normalize_stream_chunk_json(chunk).unwrap();
+
+    assert_eq!(delta.reasoning_content, "step-1");
+}
+
+#[test]
 fn gemini_stream_chunk_json_extracts_thought_tags() {
     let chunk = serde_json::json!({
         "id": "chatcmpl-test",
@@ -717,6 +736,66 @@ fn gemini_stream_chunk_json_extracts_thought_tags() {
 
     assert_eq!(delta.content, "visible");
     assert_eq!(delta.reasoning_content, "hidden");
+}
+
+#[tokio::test]
+async fn openai_compatible_completion_uses_json_path_for_empty_reasoning_content() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = read_http_request(&mut socket).await;
+        let body = request.split("\r\n\r\n").nth(1).expect("request body");
+        let json: serde_json::Value = serde_json::from_str(body).unwrap();
+
+        assert!(request.starts_with("POST /chat/completions "));
+        assert_eq!(json["messages"][0]["role"], "assistant");
+        assert_eq!(json["messages"][0]["reasoning_content"], "");
+
+        let response = serde_json::json!({
+            "id": "chatcmpl-test",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "deepseek-v4-pro",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+            response.len(),
+            response
+        );
+        use tokio::io::AsyncWriteExt;
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let client = OpenAiCompatibleChatClient::new("fallback-model", api_base, "sk-test");
+    let response = client
+        .create_completion(ChatRequest {
+            model: "deepseek-v4-pro".to_string(),
+            messages: vec![Message {
+                role: MessageRole::Assistant,
+                content: Vec::new(),
+                name: None,
+                tool_call_id: None,
+                tool_calls: Vec::new(),
+                reasoning_content: Some(String::new()),
+            }],
+            options: Default::default(),
+            tools: Vec::new(),
+            tool_choice: None,
+            extra_body: serde_json::Value::Null,
+        })
+        .await
+        .unwrap();
+    server.await.unwrap();
+
+    assert_eq!(response.content, "ok");
 }
 
 #[tokio::test]
