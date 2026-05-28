@@ -22,8 +22,8 @@ v*.*.*
 The tag must match `crates/vv-llm/Cargo.toml` exactly. For example:
 
 ```text
-version = "0.1.1"
-tag     = "v0.1.1"
+version = "0.2.0"
+tag     = "v0.2.0"
 ```
 
 If the tag and crate version differ, the workflow fails before publishing.
@@ -42,8 +42,8 @@ cargo publish --manifest-path crates/vv-llm/Cargo.toml --dry-run
 Then create and push the matching tag:
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 GitHub Actions will run local checks, run `cargo publish --dry-run`, and then publish to crates.io with `CARGO_REGISTRY_TOKEN`.

@@ -236,7 +236,7 @@ fn to_openai_text_or_parts(
     content: &[MessageContent],
 ) -> Result<ChatCompletionRequestSystemMessageContent, VvLlmError> {
     if content.len() == 1 {
-        if let MessageContent::Text { text } = &content[0] {
+        if let MessageContent::Text { text, .. } = &content[0] {
             return Ok(ChatCompletionRequestSystemMessageContent::Text(
                 text.clone(),
             ));
@@ -254,7 +254,7 @@ fn to_openai_user_content(
     content: &[MessageContent],
 ) -> Result<ChatCompletionRequestUserMessageContent, VvLlmError> {
     if content.len() == 1 {
-        if let MessageContent::Text { text } = &content[0] {
+        if let MessageContent::Text { text, .. } = &content[0] {
             return Ok(ChatCompletionRequestUserMessageContent::Text(text.clone()));
         }
     }
@@ -270,9 +270,11 @@ fn to_openai_system_part(
     content: &MessageContent,
 ) -> Result<ChatCompletionRequestSystemMessageContentPart, VvLlmError> {
     match content {
-        MessageContent::Text { text } => Ok(ChatCompletionRequestSystemMessageContentPart::Text(
-            ChatCompletionRequestMessageContentPartText { text: text.clone() },
-        )),
+        MessageContent::Text { text, .. } => {
+            Ok(ChatCompletionRequestSystemMessageContentPart::Text(
+                ChatCompletionRequestMessageContentPartText { text: text.clone() },
+            ))
+        }
         MessageContent::ImageUrl { .. } => Err(VvLlmError::Configuration(
             "system messages cannot contain image parts".to_string(),
         )),
@@ -283,7 +285,7 @@ fn to_openai_user_part(
     content: &MessageContent,
 ) -> Result<ChatCompletionRequestUserMessageContentPart, VvLlmError> {
     match content {
-        MessageContent::Text { text } => Ok(ChatCompletionRequestUserMessageContentPart::Text(
+        MessageContent::Text { text, .. } => Ok(ChatCompletionRequestUserMessageContentPart::Text(
             ChatCompletionRequestMessageContentPartText { text: text.clone() },
         )),
         MessageContent::ImageUrl { url } => {

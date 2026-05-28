@@ -121,9 +121,7 @@ fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
             Message::text(MessageRole::Assistant, "assistant"),
             Message {
                 role: MessageRole::Tool,
-                content: vec![MessageContent::Text {
-                    text: "tool result".to_string(),
-                }],
+                content: vec![MessageContent::text("tool result")],
                 name: None,
                 tool_call_id: Some("call-1".to_string()),
                 tool_calls: Vec::new(),
@@ -290,9 +288,7 @@ fn anthropic_adapter_maps_image_content_for_native_multimodal_models() {
         messages: vec![Message {
             role: MessageRole::User,
             content: vec![
-                MessageContent::Text {
-                    text: "describe this image".to_string(),
-                },
+                MessageContent::text("describe this image"),
                 MessageContent::ImageUrl {
                     url: "data:image/png;base64,AAAA".to_string(),
                 },
@@ -344,9 +340,7 @@ fn anthropic_adapter_maps_tools_and_multi_turn_tool_messages() {
             },
             Message {
                 role: MessageRole::Tool,
-                content: vec![MessageContent::Text {
-                    text: "72F and sunny".to_string(),
-                }],
+                content: vec![MessageContent::text("72F and sunny")],
                 name: None,
                 tool_call_id: Some("toolu_1".to_string()),
                 tool_calls: Vec::new(),
@@ -388,6 +382,64 @@ fn anthropic_adapter_maps_tools_and_multi_turn_tool_messages() {
 }
 
 #[test]
+fn anthropic_adapter_preserves_cache_control_extensions() {
+    let client =
+        AnthropicChatClient::new("claude-sonnet-4-6", "https://api.anthropic.com", "sk-test");
+    let request = ChatRequest {
+        model: "claude-sonnet-4-6".to_string(),
+        messages: vec![
+            Message {
+                role: MessageRole::System,
+                content: vec![MessageContent::Text {
+                    text: "stable system block".to_string(),
+                    cache_control: Some(serde_json::json!({"type": "ephemeral"})),
+                }],
+                name: None,
+                tool_call_id: None,
+                tool_calls: Vec::new(),
+                reasoning_content: None,
+            },
+            Message {
+                role: MessageRole::User,
+                content: vec![MessageContent::text("hello")],
+                name: None,
+                tool_call_id: None,
+                tool_calls: Vec::new(),
+                reasoning_content: None,
+            },
+        ],
+        options: ChatRequestOptions {
+            max_tokens: Some(128),
+            ..Default::default()
+        },
+        tools: vec![ChatTool {
+            name: "stable_tool".to_string(),
+            description: Some("Stable tool schema".to_string()),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "value": {"type": "string"}
+                }
+            }),
+            cache_control: Some(serde_json::json!({"type": "ephemeral"})),
+        }],
+        tool_choice: None,
+        extra_body: serde_json::Value::Null,
+    };
+
+    let json = client.to_anthropic_json(&request).unwrap();
+
+    assert_eq!(
+        json["system"][0]["cache_control"],
+        serde_json::json!({"type": "ephemeral"})
+    );
+    assert_eq!(
+        json["tools"][0]["cache_control"],
+        serde_json::json!({"type": "ephemeral"})
+    );
+}
+
+#[test]
 fn openai_adapter_maps_image_content_for_vision_models() {
     let client =
         OpenAiCompatibleChatClient::new("qwen3-vl-flash", "https://example.com/v1", "sk-test");
@@ -396,9 +448,7 @@ fn openai_adapter_maps_image_content_for_vision_models() {
         messages: vec![Message {
             role: MessageRole::User,
             content: vec![
-                MessageContent::Text {
-                    text: "describe this image".to_string(),
-                },
+                MessageContent::text("describe this image"),
                 MessageContent::ImageUrl {
                     url: "data:image/png;base64,AAAA".to_string(),
                 },
@@ -479,9 +529,7 @@ fn openai_adapter_maps_multi_turn_tool_messages() {
             },
             Message {
                 role: MessageRole::Tool,
-                content: vec![MessageContent::Text {
-                    text: "72F and sunny".to_string(),
-                }],
+                content: vec![MessageContent::text("72F and sunny")],
                 name: None,
                 tool_call_id: Some("call_1".to_string()),
                 tool_calls: Vec::new(),
@@ -619,6 +667,96 @@ fn gemini_stream_chunk_json_extracts_thought_tags() {
 }
 
 #[tokio::test]
+async fn anthropic_direct_completion_uses_json_path_for_cache_control_and_tools() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = read_http_request(&mut socket).await;
+        let body = request.split("\r\n\r\n").nth(1).expect("request body");
+        let json: serde_json::Value = serde_json::from_str(body).unwrap();
+
+        assert!(request.starts_with("POST /v1/messages "));
+        assert_eq!(
+            json["messages"][0]["content"][0]["cache_control"],
+            serde_json::json!({"type": "ephemeral"})
+        );
+        assert_eq!(
+            json["tools"][0]["cache_control"],
+            serde_json::json!({"type": "ephemeral"})
+        );
+        assert_eq!(
+            json["thinking"],
+            serde_json::json!({"type": "enabled", "budget_tokens": 16000})
+        );
+
+        let response = serde_json::json!({
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-6",
+            "content": [
+                {"type": "text", "text": "ok"},
+                {"type": "tool_use", "id": "toolu_1", "name": "stable_tool", "input": {"value": "seen"}}
+            ],
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": {"input_tokens": 5, "output_tokens": 7}
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+            response.len(),
+            response
+        );
+        use tokio::io::AsyncWriteExt;
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let client = AnthropicChatClient::new("claude-sonnet-4-6", api_base, "sk-test");
+    let response = client
+        .create_completion(ChatRequest {
+            model: "claude-sonnet-4-6".to_string(),
+            messages: vec![Message {
+                role: MessageRole::User,
+                content: vec![MessageContent::text_with_cache_control(
+                    "stable prompt block",
+                    serde_json::json!({"type": "ephemeral"}),
+                )],
+                name: None,
+                tool_call_id: None,
+                tool_calls: Vec::new(),
+                reasoning_content: None,
+            }],
+            options: ChatRequestOptions {
+                max_tokens: Some(128),
+                ..Default::default()
+            },
+            tools: vec![ChatTool::function(
+                "stable_tool",
+                "Stable tool schema",
+                serde_json::json!({"type": "object"}),
+            )
+            .with_cache_control(serde_json::json!({"type": "ephemeral"}))],
+            tool_choice: None,
+            extra_body: serde_json::json!({
+                "thinking": {"type": "enabled", "budget_tokens": 16000}
+            }),
+        })
+        .await
+        .unwrap();
+    server.await.unwrap();
+
+    assert_eq!(response.content, "ok");
+    assert_eq!(response.tool_calls[0].name, "stable_tool");
+    assert_eq!(response.tool_calls[0].arguments, r#"{"value":"seen"}"#);
+    let usage = response.usage.unwrap();
+    assert_eq!(usage.prompt_tokens, Some(5));
+    assert_eq!(usage.completion_tokens, Some(7));
+    assert_eq!(usage.total_tokens, Some(12));
+}
+
+#[tokio::test]
 async fn chat_client_trait_supports_stream_return_type() {
     struct StaticStreamClient;
 
@@ -658,6 +796,42 @@ async fn chat_client_trait_supports_stream_return_type() {
         .unwrap();
     let delta = stream.next().await.unwrap().unwrap();
     assert_eq!(delta.content, "pong");
+}
+
+async fn read_http_request(socket: &mut tokio::net::TcpStream) -> String {
+    use tokio::io::AsyncReadExt;
+
+    let mut buffer = Vec::new();
+    let mut chunk = [0_u8; 1024];
+    loop {
+        let read = socket.read(&mut chunk).await.unwrap();
+        if read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+        if http_request_is_complete(&buffer) {
+            break;
+        }
+    }
+    String::from_utf8(buffer).unwrap()
+}
+
+fn http_request_is_complete(buffer: &[u8]) -> bool {
+    let Some(header_end) = buffer.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return false;
+    };
+    let header = String::from_utf8_lossy(&buffer[..header_end]);
+    let content_length = header
+        .lines()
+        .find_map(|line| line.strip_prefix("content-length:"))
+        .or_else(|| {
+            header
+                .lines()
+                .find_map(|line| line.strip_prefix("Content-Length:"))
+        })
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(0);
+    buffer.len() >= header_end + 4 + content_length
 }
 
 #[tokio::test]

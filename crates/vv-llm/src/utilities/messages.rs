@@ -16,7 +16,7 @@ pub fn normalize_text_messages(messages: Vec<Message>) -> Vec<Message> {
                     .flatten()
                     .collect::<Vec<_>>()
                     .join("\n");
-                previous.content = vec![MessageContent::Text { text: merged }];
+                previous.content = vec![MessageContent::text(merged)];
                 continue;
             }
         }

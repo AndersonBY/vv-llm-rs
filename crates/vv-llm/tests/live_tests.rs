@@ -161,10 +161,9 @@ async fn live_anthropic_bedrock_image_understanding() {
                 messages: vec![Message {
                     role: MessageRole::User,
                     content: vec![
-                        MessageContent::Text {
-                            text: "What animal is in this image? Reply with one English word."
-                                .to_string(),
-                        },
+                        MessageContent::text(
+                            "What animal is in this image? Reply with one English word.",
+                        ),
                         MessageContent::ImageUrl { url: image_url },
                     ],
                     name: None,
@@ -291,9 +290,7 @@ async fn live_anthropic_bedrock_tool_result_multi_turn() {
                     },
                     Message {
                         role: MessageRole::Tool,
-                        content: vec![MessageContent::Text {
-                            text: "72F and sunny".to_string(),
-                        }],
+                        content: vec![MessageContent::text("72F and sunny")],
                         name: None,
                         tool_call_id: Some(tool_call.id),
                         tool_calls: Vec::new(),

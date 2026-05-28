@@ -82,8 +82,33 @@ impl fmt::Display for MessageRole {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MessageContent {
-    Text { text: String },
-    ImageUrl { url: String },
+    Text {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_control: Option<serde_json::Value>,
+    },
+    ImageUrl {
+        url: String,
+    },
+}
+
+impl MessageContent {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text {
+            text: text.into(),
+            cache_control: None,
+        }
+    }
+
+    pub fn text_with_cache_control(
+        text: impl Into<String>,
+        cache_control: serde_json::Value,
+    ) -> Self {
+        Self::Text {
+            text: text.into(),
+            cache_control: Some(cache_control),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -104,7 +129,7 @@ impl Message {
     pub fn text(role: MessageRole, text: impl Into<String>) -> Self {
         Self {
             role,
-            content: vec![MessageContent::Text { text: text.into() }],
+            content: vec![MessageContent::text(text)],
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
@@ -115,7 +140,7 @@ impl Message {
     pub fn text_content(&self) -> Option<String> {
         let mut parts = Vec::new();
         for content in &self.content {
-            if let MessageContent::Text { text } = content {
+            if let MessageContent::Text { text, .. } = content {
                 parts.push(text.as_str());
             }
         }
@@ -170,6 +195,8 @@ pub struct ChatTool {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub parameters: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<serde_json::Value>,
 }
 
 impl ChatTool {
@@ -182,7 +209,13 @@ impl ChatTool {
             name: name.into(),
             description: Some(description.into()),
             parameters,
+            cache_control: None,
         }
+    }
+
+    pub fn with_cache_control(mut self, cache_control: serde_json::Value) -> Self {
+        self.cache_control = Some(cache_control);
+        self
     }
 }
 

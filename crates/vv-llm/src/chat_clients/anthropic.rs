@@ -15,7 +15,8 @@ use aws_sdk_bedrockruntime::{
 };
 use aws_smithy_types::{Blob, Document, Number};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use futures_util::stream;
+use futures_util::{stream, StreamExt};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
@@ -96,6 +97,118 @@ impl AnthropicChatClient {
             .build()
             .map_err(|error| VvLlmError::Provider(error.to_string()))
     }
+
+    fn headers(&self) -> Result<HeaderMap, VvLlmError> {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-api-key",
+            self.api_key
+                .parse::<HeaderValue>()
+                .map_err(|error| VvLlmError::Provider(error.to_string()))?,
+        );
+        headers.insert(
+            "anthropic-version",
+            "2023-06-01"
+                .parse::<HeaderValue>()
+                .map_err(|error| VvLlmError::Provider(error.to_string()))?,
+        );
+        headers.insert(
+            CONTENT_TYPE,
+            "application/json"
+                .parse::<HeaderValue>()
+                .map_err(|error| VvLlmError::Provider(error.to_string()))?,
+        );
+        headers.insert(
+            ACCEPT,
+            "application/json"
+                .parse::<HeaderValue>()
+                .map_err(|error| VvLlmError::Provider(error.to_string()))?,
+        );
+        Ok(headers)
+    }
+
+    async fn post_messages_json(&self, request: Value) -> Result<Value, VvLlmError> {
+        let response = reqwest::Client::new()
+            .post(format!(
+                "{}/v1/messages",
+                self.api_base.trim_end_matches('/')
+            ))
+            .headers(self.headers()?)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|error| VvLlmError::Provider(error.to_string()))?;
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|error| VvLlmError::Provider(error.to_string()))?;
+        let value = serde_json::from_str::<Value>(&body)?;
+        if !status.is_success() {
+            return Err(VvLlmError::Provider(anthropic_error_message(&value)));
+        }
+        Ok(value)
+    }
+
+    async fn messages_json_stream(&self, request: Value) -> Result<ChatStream, VvLlmError> {
+        let response = reqwest::Client::new()
+            .post(format!(
+                "{}/v1/messages",
+                self.api_base.trim_end_matches('/')
+            ))
+            .headers(self.headers()?)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|error| VvLlmError::Provider(error.to_string()))?;
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .map_err(|error| VvLlmError::Provider(error.to_string()))?;
+            let value = serde_json::from_str::<Value>(&body).unwrap_or(Value::String(body));
+            return Err(VvLlmError::Provider(anthropic_error_message(&value)));
+        }
+        let bytes = response.bytes_stream();
+        let state = AnthropicSseState::default();
+
+        Ok(Box::pin(stream::unfold(
+            (bytes, state),
+            |(mut bytes, mut state)| async move {
+                loop {
+                    match bytes.next().await {
+                        Some(Ok(chunk)) => {
+                            let text = match std::str::from_utf8(&chunk) {
+                                Ok(text) => text,
+                                Err(error) => {
+                                    return Some((
+                                        Err(VvLlmError::Provider(error.to_string())),
+                                        (bytes, state),
+                                    ))
+                                }
+                            };
+                            state.buffer.push_str(text);
+                            if let Some(event) = state.next_event() {
+                                match normalize_anthropic_sse_event(&event) {
+                                    Ok(Some(delta)) => return Some((Ok(delta), (bytes, state))),
+                                    Ok(None) => continue,
+                                    Err(error) => return Some((Err(error), (bytes, state))),
+                                }
+                            }
+                        }
+                        Some(Err(error)) => {
+                            return Some((
+                                Err(VvLlmError::Provider(error.to_string())),
+                                (bytes, state),
+                            ))
+                        }
+                        None => return None,
+                    }
+                }
+            },
+        )))
+    }
 }
 
 #[async_trait]
@@ -105,6 +218,12 @@ impl ChatClient for AnthropicChatClient {
     }
 
     async fn create_completion(&self, request: ChatRequest) -> Result<ChatResponse, VvLlmError> {
+        if request_needs_anthropic_json(&request) {
+            let response = self
+                .post_messages_json(self.to_anthropic_json(&request)?)
+                .await?;
+            return normalize_anthropic_response_json(response);
+        }
         let response = self
             .client()?
             .messages(self.to_anthropic_request(&request)?)
@@ -137,6 +256,17 @@ impl ChatClient for AnthropicChatClient {
     }
 
     async fn create_stream(&self, request: ChatRequest) -> Result<ChatStream, VvLlmError> {
+        if request_needs_anthropic_json(&request) {
+            let mut request = self.to_anthropic_json(&ChatRequest {
+                options: crate::ChatRequestOptions {
+                    stream: Some(true),
+                    ..request.options.clone()
+                },
+                ..request
+            })?;
+            request["stream"] = Value::Bool(true);
+            return self.messages_json_stream(request).await;
+        }
         let stream = self
             .client()?
             .messages_stream(self.to_anthropic_request(&ChatRequest {
@@ -343,15 +473,13 @@ struct BedrockChatRequest {
 }
 
 fn to_anthropic_json(model: &str, request: &ChatRequest) -> Result<Value, VvLlmError> {
-    let mut system = Vec::new();
+    let mut system = Vec::<Value>::new();
     let mut messages = Vec::new();
 
     for message in &request.messages {
         match message.role {
             MessageRole::System => {
-                if let Some(text) = message.text_content() {
-                    system.push(text);
-                }
+                system.extend(to_anthropic_content(message)?);
             }
             MessageRole::User | MessageRole::Tool => {
                 messages.push(json!({
@@ -374,8 +502,16 @@ fn to_anthropic_json(model: &str, request: &ChatRequest) -> Result<Value, VvLlmE
         "max_tokens": request.options.max_tokens.unwrap_or(1024),
         "stream": request.options.stream.unwrap_or(false),
     });
-    if !system.is_empty() {
-        value["system"] = Value::String(system.join("\n"));
+    if system.iter().any(block_has_anthropic_extension) {
+        value["system"] = Value::Array(system);
+    } else if !system.is_empty() {
+        value["system"] = Value::String(
+            system
+                .iter()
+                .filter_map(text_block_text)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
     }
     if let Some(temperature) = request.options.temperature {
         value["temperature"] = json!(temperature);
@@ -388,18 +524,46 @@ fn to_anthropic_json(model: &str, request: &ChatRequest) -> Result<Value, VvLlmE
     } else if !request.tools.is_empty() {
         value["tool_choice"] = json!({"type": "auto"});
     }
+    merge_extra_body(&mut value, &request.extra_body);
 
     Ok(value)
+}
+
+fn block_has_anthropic_extension(block: &Value) -> bool {
+    block.get("cache_control").is_some()
+}
+
+fn merge_extra_body(json: &mut Value, extra_body: &Value) {
+    if is_empty_extra_body(extra_body) {
+        return;
+    }
+    let Some(target) = json.as_object_mut() else {
+        return;
+    };
+    if let Some(object) = extra_body.as_object() {
+        for (key, value) in object {
+            target.insert(key.clone(), value.clone());
+        }
+    }
 }
 
 fn to_anthropic_content(message: &Message) -> Result<Vec<Value>, VvLlmError> {
     let mut blocks = Vec::new();
     for content in &message.content {
         match content {
-            MessageContent::Text { text } => blocks.push(json!({
-                "type": "text",
-                "text": text,
-            })),
+            MessageContent::Text {
+                text,
+                cache_control,
+            } => {
+                let mut block = json!({
+                    "type": "text",
+                    "text": text,
+                });
+                if let Some(cache_control) = cache_control {
+                    block["cache_control"] = cache_control.clone();
+                }
+                blocks.push(block);
+            }
             MessageContent::ImageUrl { url } => {
                 let data = parse_data_url(url)?;
                 blocks.push(json!({
@@ -441,11 +605,15 @@ fn to_anthropic_content(message: &Message) -> Result<Vec<Value>, VvLlmError> {
 }
 
 fn to_anthropic_tool(tool: &ChatTool) -> Value {
-    json!({
+    let mut value = json!({
         "name": tool.name,
         "description": tool.description.clone().unwrap_or_default(),
         "input_schema": tool.parameters,
-    })
+    });
+    if let Some(cache_control) = &tool.cache_control {
+        value["cache_control"] = cache_control.clone();
+    }
+    value
 }
 
 fn to_anthropic_tool_choice(choice: &str) -> Result<Value, VvLlmError> {
@@ -531,7 +699,7 @@ fn to_anthropic_sdk_message(message: &Message, role: Role) -> Result<AnthropicMe
     let mut content = Vec::new();
     for block in &message.content {
         match block {
-            MessageContent::Text { text } => {
+            MessageContent::Text { text, .. } => {
                 content.push(AnthropicContentBlock::Text { text: text.clone() });
             }
             MessageContent::ImageUrl { url } => {
@@ -573,7 +741,7 @@ fn to_bedrock_message(
         let mut content = Vec::new();
         for block in &message.content {
             match block {
-                MessageContent::Text { text } => {
+                MessageContent::Text { text, .. } => {
                     content.push(bedrock::ContentBlock::Text(text.clone()));
                 }
                 MessageContent::ImageUrl { url } => {
@@ -636,6 +804,240 @@ fn to_bedrock_tool_choice(choice: &str) -> Result<Option<bedrock::ToolChoice>, V
             "unsupported tool_choice value: {other}"
         ))),
     }
+}
+
+fn request_needs_anthropic_json(request: &ChatRequest) -> bool {
+    !request.tools.is_empty()
+        || request.tool_choice.is_some()
+        || !is_empty_extra_body(&request.extra_body)
+        || request
+            .messages
+            .iter()
+            .flat_map(|message| &message.content)
+            .any(|content| {
+                matches!(
+                    content,
+                    MessageContent::Text {
+                        cache_control: Some(_),
+                        ..
+                    }
+                )
+            })
+}
+
+fn is_empty_extra_body(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Object(object) => object.is_empty(),
+        _ => false,
+    }
+}
+
+fn normalize_anthropic_response_json(value: Value) -> Result<ChatResponse, VvLlmError> {
+    let content = value
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(text_block_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let usage = value.get("usage").map(|usage| ChatUsage {
+        prompt_tokens: value_u32(usage.get("input_tokens")),
+        completion_tokens: value_u32(usage.get("output_tokens")),
+        total_tokens: match (
+            value_u32(usage.get("input_tokens")),
+            value_u32(usage.get("output_tokens")),
+        ) {
+            (Some(input), Some(output)) => input.checked_add(output),
+            _ => value_u32(usage.get("total_tokens")),
+        },
+    });
+    Ok(ChatResponse {
+        id: value_to_string(value.get("id")),
+        model: value_to_string(value.get("model")),
+        content,
+        tool_calls: tool_calls_from_anthropic_content(value.get("content"))?,
+        reasoning_content: None,
+        usage,
+    })
+}
+
+#[derive(Debug, Default)]
+struct AnthropicSseState {
+    buffer: String,
+}
+
+impl AnthropicSseState {
+    fn next_event(&mut self) -> Option<String> {
+        let separator = self
+            .buffer
+            .find("\n\n")
+            .or_else(|| self.buffer.find("\r\n\r\n"))?;
+        let event = self.buffer[..separator].to_string();
+        let drain_to = if self.buffer[separator..].starts_with("\r\n\r\n") {
+            separator + 4
+        } else {
+            separator + 2
+        };
+        self.buffer.drain(..drain_to);
+        Some(event)
+    }
+}
+
+fn normalize_anthropic_sse_event(event: &str) -> Result<Option<ChatStreamDelta>, VvLlmError> {
+    let mut event_name = String::new();
+    let mut data = Vec::new();
+    for line in event.lines() {
+        let line = line.trim_end_matches('\r');
+        if let Some(value) = line.strip_prefix("event:") {
+            event_name = value.trim().to_string();
+        } else if let Some(value) = line.strip_prefix("data:") {
+            data.push(value.trim_start());
+        }
+    }
+    if event_name == "ping" || data.is_empty() {
+        return Ok(None);
+    }
+    let data = data.join("\n");
+    if event_name == "error" {
+        let value = serde_json::from_str::<Value>(&data)?;
+        return Err(VvLlmError::Provider(anthropic_error_message(&value)));
+    }
+    let value = serde_json::from_str::<Value>(&data)?;
+    normalize_anthropic_stream_json(value)
+}
+
+fn normalize_anthropic_stream_json(value: Value) -> Result<Option<ChatStreamDelta>, VvLlmError> {
+    match value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+    {
+        "message_start" => Ok(Some(ChatStreamDelta {
+            raw_content: Some(value),
+            ..Default::default()
+        })),
+        "content_block_start" => {
+            let Some(block) = value.get("content_block") else {
+                return Ok(None);
+            };
+            match block
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+            {
+                "text" => Ok(text_block_text(block).map(|content| ChatStreamDelta {
+                    content,
+                    ..Default::default()
+                })),
+                "tool_use" => Ok(Some(ChatStreamDelta {
+                    tool_calls: vec![tool_call_from_anthropic_block(block)?],
+                    ..Default::default()
+                })),
+                _ => Ok(None),
+            }
+        }
+        "content_block_delta" => {
+            let Some(delta) = value.get("delta") else {
+                return Ok(None);
+            };
+            match delta
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+            {
+                "text_delta" => Ok(Some(ChatStreamDelta {
+                    content: value_to_string(delta.get("text")),
+                    ..Default::default()
+                })),
+                "input_json_delta" => Ok(Some(ChatStreamDelta {
+                    tool_calls: vec![ToolCall {
+                        id: String::new(),
+                        name: String::new(),
+                        arguments: value_to_string(delta.get("partial_json")),
+                        extra_content: None,
+                    }],
+                    ..Default::default()
+                })),
+                _ => Ok(None),
+            }
+        }
+        "message_delta" => {
+            let usage = value.get("usage").map(|usage| ChatUsage {
+                prompt_tokens: value_u32(usage.get("input_tokens")),
+                completion_tokens: value_u32(usage.get("output_tokens")),
+                total_tokens: value_u32(usage.get("total_tokens")),
+            });
+            Ok(usage.map(|usage| ChatStreamDelta {
+                usage: Some(usage),
+                ..Default::default()
+            }))
+        }
+        "message_stop" => Ok(Some(ChatStreamDelta {
+            done: true,
+            ..Default::default()
+        })),
+        _ => Ok(None),
+    }
+}
+
+fn tool_calls_from_anthropic_content(content: Option<&Value>) -> Result<Vec<ToolCall>, VvLlmError> {
+    content
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))
+        .map(tool_call_from_anthropic_block)
+        .collect()
+}
+
+fn tool_call_from_anthropic_block(block: &Value) -> Result<ToolCall, VvLlmError> {
+    Ok(ToolCall {
+        id: value_to_string(block.get("id")),
+        name: value_to_string(block.get("name")),
+        arguments: block
+            .get("input")
+            .cloned()
+            .unwrap_or_else(|| json!({}))
+            .to_string(),
+        extra_content: None,
+    })
+}
+
+fn text_block_text(block: &Value) -> Option<String> {
+    if block.get("type").and_then(Value::as_str) == Some("text") {
+        Some(value_to_string(block.get("text")))
+    } else {
+        None
+    }
+}
+
+fn anthropic_error_message(value: &Value) -> String {
+    value
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("message").and_then(Value::as_str))
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn value_to_string(value: Option<&Value>) -> String {
+    match value {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Bool(value)) => value.to_string(),
+        Some(Value::Number(value)) => value.to_string(),
+        Some(Value::Array(_)) | Some(Value::Object(_)) => {
+            value.cloned().unwrap_or(Value::Null).to_string()
+        }
+        Some(Value::Null) | None => String::new(),
+    }
+}
+
+fn value_u32(value: Option<&Value>) -> Option<u32> {
+    value
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
 }
 
 fn normalize_anthropic_stream_event(event: AnthropicStreamEvent) -> ChatStreamDelta {
