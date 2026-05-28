@@ -67,6 +67,7 @@ fn normalization_does_not_merge_different_roles_or_images() {
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
+            reasoning_content: None,
         },
     ];
 

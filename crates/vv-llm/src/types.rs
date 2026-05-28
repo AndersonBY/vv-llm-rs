@@ -96,6 +96,8 @@ pub struct Message {
     pub tool_call_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<ToolCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
 }
 
 impl Message {
@@ -106,6 +108,7 @@ impl Message {
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
+            reasoning_content: None,
         }
     }
 
@@ -144,6 +147,8 @@ pub struct ChatRequest {
     pub tools: Vec<ChatTool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<String>,
+    #[serde(default, skip_serializing_if = "is_empty_extra_body")]
+    pub extra_body: serde_json::Value,
 }
 
 impl ChatRequest {
@@ -154,6 +159,7 @@ impl ChatRequest {
             options: ChatRequestOptions::default(),
             tools: Vec::new(),
             tool_choice: None,
+            extra_body: serde_json::Value::Null,
         }
     }
 }
@@ -185,6 +191,8 @@ pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_content: Option<serde_json::Value>,
 }
 
 impl ToolCall {
@@ -197,6 +205,7 @@ impl ToolCall {
             id: id.into(),
             name: name.into(),
             arguments: arguments.into(),
+            extra_content: None,
         }
     }
 }
@@ -208,6 +217,8 @@ pub struct ChatResponse {
     pub content: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<ToolCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<ChatUsage>,
 }
@@ -240,6 +251,14 @@ pub struct ChatUsage {
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+fn is_empty_extra_body(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => true,
+        serde_json::Value::Object(object) => object.is_empty(),
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

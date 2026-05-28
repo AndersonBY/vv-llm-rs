@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-vv-llm = "0.1.0"
+vv-llm = "0.1.1"
 ```
 
 包已经发布到官方 crates.io，名称是 `vv-llm`，Rust 代码中以 `vv_llm` 导入。本仓库本地开发时可以使用 `vv-llm = { path = "crates/vv-llm" }`。
@@ -28,9 +28,7 @@ OpenAI-compatible chat 可用于 OpenAI、DeepSeek、Qwen、Gemini OpenAI-compat
 ### 直接创建 Client
 
 ```rust
-use vv_llm::{
-    create_chat_client, BackendType, ChatRequest, ChatRequestOptions, Message, MessageRole,
-};
+use vv_llm::{create_chat_client, BackendType, ChatRequest, Message, MessageRole};
 
 #[tokio::main]
 async fn main() -> Result<(), vv_llm::VvLlmError> {
@@ -41,18 +39,13 @@ async fn main() -> Result<(), vv_llm::VvLlmError> {
         "sk-...",
     );
 
-    let response = client
-        .create_completion(ChatRequest {
-            model: "gpt-4o".to_string(),
-            messages: vec![Message::text(MessageRole::User, "用一句话解释 RAG。")],
-            options: ChatRequestOptions {
-                max_tokens: Some(128),
-                ..Default::default()
-            },
-            tools: Vec::new(),
-            tool_choice: None,
-        })
-        .await?;
+    let mut request = ChatRequest::new(
+        "gpt-4o",
+        vec![Message::text(MessageRole::User, "用一句话解释 RAG。")],
+    );
+    request.options.max_tokens = Some(128);
+
+    let response = client.create_completion(request).await?;
 
     println!("{}", response.content);
     Ok(())
@@ -137,15 +130,13 @@ use futures_util::StreamExt;
 use vv_llm::{ChatRequest, ChatRequestOptions, Message, MessageRole};
 
 let mut stream = client
-    .create_stream(ChatRequest {
-        model: "gpt-4o".to_string(),
-        messages: vec![Message::text(MessageRole::User, "写一首四行诗。")],
-        options: ChatRequestOptions {
-            stream: Some(true),
-            ..Default::default()
-        },
-        tools: Vec::new(),
-        tool_choice: None,
+    .create_stream({
+        let mut request = ChatRequest::new(
+            "gpt-4o",
+            vec![Message::text(MessageRole::User, "写一首四行诗。")],
+        );
+        request.options.stream = Some(true);
+        request
     })
     .await?;
 
@@ -164,14 +155,14 @@ OpenAI-compatible stream 会归一化文本、工具调用、usage chunk，以�
 ```rust
 use vv_llm::{ChatRequest, ChatTool, Message, MessageRole};
 
-let request = ChatRequest {
-    model: "deepseek-chat".to_string(),
-    messages: vec![Message::text(
+let mut request = ChatRequest::new(
+    "deepseek-chat",
+    vec![Message::text(
         MessageRole::User,
         "Use the weather tool for New York.",
     )],
-    options: Default::default(),
-    tools: vec![ChatTool::function(
+);
+request.tools = vec![ChatTool::function(
         "get_current_weather",
         "Get the current weather in a city",
         serde_json::json!({
@@ -181,9 +172,8 @@ let request = ChatRequest {
             },
             "required": ["location"]
         }),
-    )],
-    tool_choice: Some("required".to_string()),
-};
+    )];
+request.tool_choice = Some("required".to_string());
 
 let response = client.create_completion(request).await?;
 for call in response.tool_calls {
@@ -192,6 +182,17 @@ for call in response.tool_calls {
 ```
 
 工具结果轮次使用带 `tool_call_id` 的 `MessageRole::Tool`；assistant 发出的工具调用放在 `Message.tool_calls` 中。
+
+## Provider 扩展字段
+
+OpenAI-compatible provider 经常会暴露额外的请求 / 响应字段，用于 reasoning trace、thinking 控制或供应商专有工具元数据。`vv-llm` 把这些能力放在 provider-neutral 的类型化字段里，调用方不需要自己手写协议转换：
+
+- `ChatRequest.extra_body` 会把对象字段合并到请求 JSON 根层。
+- `Message.reasoning_content` 会保留 assistant 历史消息里的 reasoning 内容。
+- `ToolCall.extra_content` 会保留供应商工具调用元数据，例如 Google thought signature。
+- `ChatResponse.reasoning_content` 和流式 `ChatStreamDelta.reasoning_content` 会暴露支持的 reasoning 输出。
+
+当这些扩展字段存在时，OpenAI-compatible adapter 会在内部使用 `async-openai` BYOT，并把原始 JSON 响应重新归一化成公开的 `vv-llm` 类型。
 
 ## 多模态输入
 
@@ -213,6 +214,7 @@ let message = Message {
     name: None,
     tool_call_id: None,
     tool_calls: Vec::new(),
+    reasoning_content: None,
 };
 ```
 
@@ -286,6 +288,7 @@ Anthropic Bedrock endpoint 使用 `endpoint_type: "anthropic_bedrock"`，并配�
 - **统一 Chat API** — 一个 `ChatClient` trait 覆盖 completion 和 streaming
 - **配置解析** — 从 JSON 加载模型目录、endpoint 绑定、provider id 和传输元数据
 - **OpenAI-compatible adapter** — 使用 `async-openai` 处理 chat 和 embedding
+- **Provider 扩展字段** — 类型化 reasoning content、请求 `extra_body` 和 tool-call `extra_content`
 - **Anthropic 支持** — 直接 Messages API，以及 Bedrock Converse transport
 - **Streaming 归一化** — provider stream event 统一转成 `ChatStreamDelta`
 - **工具调用** — 标准化 function/tool 定义、assistant tool call 和 tool-result 轮次

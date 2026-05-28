@@ -34,6 +34,7 @@ async fn live_deepseek_openai_compatible_chat_completion() {
                 options: Default::default(),
                 tools: Vec::new(),
                 tool_choice: None,
+                extra_body: serde_json::Value::Null,
             })
             .await
     })
@@ -66,6 +67,7 @@ async fn live_qwen_openai_compatible_chat_with_system_prompt() {
                 options: Default::default(),
                 tools: Vec::new(),
                 tool_choice: None,
+                extra_body: serde_json::Value::Null,
             })
             .await
     })
@@ -98,6 +100,7 @@ async fn live_zhipuai_openai_compatible_chat_completion() {
                 options: Default::default(),
                 tools: Vec::new(),
                 tool_choice: None,
+                extra_body: serde_json::Value::Null,
             })
             .await
     })
@@ -129,6 +132,7 @@ async fn live_anthropic_chat_from_resolved() {
                 options: Default::default(),
                 tools: Vec::new(),
                 tool_choice: None,
+                extra_body: serde_json::Value::Null,
             })
             .await
     })
@@ -166,6 +170,7 @@ async fn live_anthropic_bedrock_image_understanding() {
                     name: None,
                     tool_call_id: None,
                     tool_calls: Vec::new(),
+                    reasoning_content: None,
                 }],
                 options: ChatRequestOptions {
                     max_tokens: Some(16),
@@ -173,6 +178,7 @@ async fn live_anthropic_bedrock_image_understanding() {
                 },
                 tools: Vec::new(),
                 tool_choice: None,
+                extra_body: serde_json::Value::Null,
             })
             .await
     })
@@ -212,6 +218,7 @@ async fn live_anthropic_bedrock_tool_call() {
                 },
                 tools: vec![weather_tool()],
                 tool_choice: Some("required".to_string()),
+                extra_body: serde_json::Value::Null,
             })
             .await
     })
@@ -256,6 +263,7 @@ async fn live_anthropic_bedrock_tool_result_multi_turn() {
                 },
                 tools: vec![weather_tool()],
                 tool_choice: Some("required".to_string()),
+                extra_body: serde_json::Value::Null,
             })
             .await
     })
@@ -279,6 +287,7 @@ async fn live_anthropic_bedrock_tool_result_multi_turn() {
                         name: None,
                         tool_call_id: None,
                         tool_calls: vec![tool_call.clone()],
+                        reasoning_content: None,
                     },
                     Message {
                         role: MessageRole::Tool,
@@ -288,6 +297,7 @@ async fn live_anthropic_bedrock_tool_result_multi_turn() {
                         name: None,
                         tool_call_id: Some(tool_call.id),
                         tool_calls: Vec::new(),
+                        reasoning_content: None,
                     },
                     Message::text(
                         MessageRole::User,
@@ -300,6 +310,7 @@ async fn live_anthropic_bedrock_tool_result_multi_turn() {
                 },
                 tools: vec![weather_tool()],
                 tool_choice: Some("auto".to_string()),
+                extra_body: serde_json::Value::Null,
             })
             .await
     })
@@ -340,6 +351,7 @@ async fn live_anthropic_bedrock_streaming_text() {
                 },
                 tools: Vec::new(),
                 tool_choice: None,
+                extra_body: serde_json::Value::Null,
             })
             .await
     })
@@ -387,6 +399,7 @@ async fn live_anthropic_bedrock_streaming_tool_call() {
                 },
                 tools: vec![weather_tool()],
                 tool_choice: Some("required".to_string()),
+                extra_body: serde_json::Value::Null,
             })
             .await
     })
@@ -441,6 +454,7 @@ async fn live_gemini_openai_vertex_chat_completion() {
                 },
                 tools: Vec::new(),
                 tool_choice: None,
+                extra_body: serde_json::Value::Null,
             })
             .await
     })

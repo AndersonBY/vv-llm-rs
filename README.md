@@ -6,7 +6,7 @@ Universal LLM client layer for Rust. One typed API for chat, streaming, embeddin
 
 ```toml
 [dependencies]
-vv-llm = "0.1.0"
+vv-llm = "0.1.1"
 ```
 
 The crate is published on crates.io as `vv-llm`; Rust code imports it as `vv_llm`. For local development in this repository, use `vv-llm = { path = "crates/vv-llm" }`.
@@ -28,9 +28,7 @@ Native transports are also available for:
 ### Direct Client
 
 ```rust
-use vv_llm::{
-    create_chat_client, BackendType, ChatRequest, ChatRequestOptions, Message, MessageRole,
-};
+use vv_llm::{create_chat_client, BackendType, ChatRequest, Message, MessageRole};
 
 #[tokio::main]
 async fn main() -> Result<(), vv_llm::VvLlmError> {
@@ -41,21 +39,16 @@ async fn main() -> Result<(), vv_llm::VvLlmError> {
         "sk-...",
     );
 
-    let response = client
-        .create_completion(ChatRequest {
-            model: "gpt-4o".to_string(),
-            messages: vec![Message::text(
-                MessageRole::User,
-                "Explain RAG in one sentence.",
-            )],
-            options: ChatRequestOptions {
-                max_tokens: Some(128),
-                ..Default::default()
-            },
-            tools: Vec::new(),
-            tool_choice: None,
-        })
-        .await?;
+    let mut request = ChatRequest::new(
+        "gpt-4o",
+        vec![Message::text(
+            MessageRole::User,
+            "Explain RAG in one sentence.",
+        )],
+    );
+    request.options.max_tokens = Some(128);
+
+    let response = client.create_completion(request).await?;
 
     println!("{}", response.content);
     Ok(())
@@ -140,15 +133,13 @@ use futures_util::StreamExt;
 use vv_llm::{ChatRequest, ChatRequestOptions, Message, MessageRole};
 
 let mut stream = client
-    .create_stream(ChatRequest {
-        model: "gpt-4o".to_string(),
-        messages: vec![Message::text(MessageRole::User, "Write a haiku.")],
-        options: ChatRequestOptions {
-            stream: Some(true),
-            ..Default::default()
-        },
-        tools: Vec::new(),
-        tool_choice: None,
+    .create_stream({
+        let mut request = ChatRequest::new(
+            "gpt-4o",
+            vec![Message::text(MessageRole::User, "Write a haiku.")],
+        );
+        request.options.stream = Some(true);
+        request
     })
     .await?;
 
@@ -167,14 +158,14 @@ OpenAI-compatible streams normalize content, tool calls, usage chunks, and tagge
 ```rust
 use vv_llm::{ChatRequest, ChatTool, Message, MessageRole};
 
-let request = ChatRequest {
-    model: "deepseek-chat".to_string(),
-    messages: vec![Message::text(
+let mut request = ChatRequest::new(
+    "deepseek-chat",
+    vec![Message::text(
         MessageRole::User,
         "Use the weather tool for New York.",
     )],
-    options: Default::default(),
-    tools: vec![ChatTool::function(
+);
+request.tools = vec![ChatTool::function(
         "get_current_weather",
         "Get the current weather in a city",
         serde_json::json!({
@@ -184,9 +175,8 @@ let request = ChatRequest {
             },
             "required": ["location"]
         }),
-    )],
-    tool_choice: Some("required".to_string()),
-};
+    )];
+request.tool_choice = Some("required".to_string());
 
 let response = client.create_completion(request).await?;
 for call in response.tool_calls {
@@ -195,6 +185,22 @@ for call in response.tool_calls {
 ```
 
 Tool-result turns use `MessageRole::Tool` with `tool_call_id`, and assistant tool-call turns use `Message.tool_calls`.
+
+## Provider Extensions
+
+OpenAI-compatible providers sometimes expose extra request and response fields for
+reasoning traces, thinking controls, or vendor-specific tool metadata. `vv-llm`
+keeps these in typed, provider-neutral fields so callers do not have to
+hand-roll protocol conversion:
+
+- `ChatRequest.extra_body` merges object fields into the root request JSON.
+- `Message.reasoning_content` preserves assistant reasoning content on request messages.
+- `ToolCall.extra_content` preserves vendor tool-call metadata such as Google thought signatures.
+- `ChatResponse.reasoning_content` and streamed `ChatStreamDelta.reasoning_content` expose supported reasoning output.
+
+When those extension fields are present, the OpenAI-compatible adapter uses
+`async-openai` BYOT under the hood and normalizes raw JSON responses back into
+the public `vv-llm` types.
 
 ## Multimodal Input
 
@@ -216,6 +222,7 @@ let message = Message {
     name: None,
     tool_call_id: None,
     tool_calls: Vec::new(),
+    reasoning_content: None,
 };
 ```
 
@@ -289,6 +296,7 @@ Anthropic Bedrock endpoints are configured with `endpoint_type: "anthropic_bedro
 - **Unified chat API** — one `ChatClient` trait for completions and streaming
 - **Settings resolution** — load model catalogs, endpoint bindings, provider ids, and transport metadata from JSON
 - **OpenAI-compatible adapters** — chat and embeddings through `async-openai`
+- **Provider extensions** — typed reasoning content, request `extra_body`, and tool-call `extra_content`
 - **Anthropic support** — direct Messages API plus Bedrock Converse transport
 - **Streaming normalization** — provider stream events become `ChatStreamDelta`
 - **Tool calling** — normalized function/tool definitions, assistant tool calls, and tool-result turns

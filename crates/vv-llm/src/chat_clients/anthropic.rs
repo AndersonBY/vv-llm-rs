@@ -131,6 +131,7 @@ impl ChatClient for AnthropicChatClient {
             model: response.model,
             content,
             tool_calls: Vec::new(),
+            reasoning_content: None,
             usage,
         })
     }
@@ -258,6 +259,7 @@ impl ChatClient for AnthropicBedrockChatClient {
                             id: tool_use.tool_use_id,
                             name: tool_use.name,
                             arguments: document_to_json(&tool_use.input)?.to_string(),
+                            extra_content: None,
                         });
                     }
                     _ => {}
@@ -276,6 +278,7 @@ impl ChatClient for AnthropicBedrockChatClient {
             model: self.model.clone(),
             content: content_parts.join("\n"),
             tool_calls,
+            reasoning_content: None,
             usage,
         })
     }
@@ -679,6 +682,7 @@ fn normalize_bedrock_stream_event(
                     id: tool_use.tool_use_id,
                     name: tool_use.name,
                     arguments: String::new(),
+                    extra_content: None,
                 };
                 state
                     .tool_uses
@@ -723,6 +727,7 @@ fn normalize_bedrock_stream_event(
                             id: String::new(),
                             name: String::new(),
                             arguments: String::new(),
+                            extra_content: None,
                         });
                     tool_call.arguments.push_str(&tool_use.input);
                     Ok(Some(ChatStreamDelta {
@@ -730,6 +735,7 @@ fn normalize_bedrock_stream_event(
                             id: tool_call.id.clone(),
                             name: tool_call.name.clone(),
                             arguments: tool_use.input,
+                            extra_content: None,
                         }],
                         ..Default::default()
                     }))

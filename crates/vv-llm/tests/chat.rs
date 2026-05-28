@@ -18,6 +18,7 @@ fn openai_compatible_adapter_builds_json_request_shape() {
         options: Default::default(),
         tools: Vec::new(),
         tool_choice: None,
+        extra_body: serde_json::Value::Null,
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -126,6 +127,7 @@ fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
                 name: None,
                 tool_call_id: Some("call-1".to_string()),
                 tool_calls: Vec::new(),
+                reasoning_content: None,
             },
         ],
         options: ChatRequestOptions {
@@ -135,6 +137,7 @@ fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
         },
         tools: Vec::new(),
         tool_choice: None,
+        extra_body: serde_json::Value::Null,
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -148,6 +151,101 @@ fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
     assert!((temperature - 0.2).abs() < 0.000_001);
     assert_eq!(json["max_tokens"], 64);
     assert_eq!(json["stream"], true);
+}
+
+#[test]
+fn openai_compatible_adapter_preserves_reasoning_extra_content_and_extra_body() {
+    let client =
+        OpenAiCompatibleChatClient::new("fallback-model", "https://api.openai.com/v1", "sk-test");
+    let request = ChatRequest {
+        model: "deepseek-v4-pro".to_string(),
+        messages: vec![Message {
+            role: MessageRole::Assistant,
+            content: Vec::new(),
+            name: None,
+            tool_call_id: None,
+            tool_calls: vec![ToolCall {
+                id: "call_1".to_string(),
+                name: "default_api:list_files".to_string(),
+                arguments: r#"{"path":"."}"#.to_string(),
+                extra_content: Some(serde_json::json!({
+                    "google": {"thought_signature": "sig_123"}
+                })),
+            }],
+            reasoning_content: Some("old-thought".to_string()),
+        }],
+        options: Default::default(),
+        tools: Vec::new(),
+        tool_choice: None,
+        extra_body: serde_json::json!({
+            "extra_body": {
+                "google": {
+                    "thinking_config": {
+                        "thinkingLevel": "high",
+                        "include_thoughts": true
+                    }
+                }
+            }
+        }),
+    };
+
+    let json = client.to_openai_json(&request).unwrap();
+
+    assert_eq!(json["messages"][0]["role"], "assistant");
+    assert_eq!(json["messages"][0]["content"], serde_json::Value::Null);
+    assert_eq!(json["messages"][0]["reasoning_content"], "old-thought");
+    assert_eq!(
+        json["messages"][0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"],
+        "sig_123"
+    );
+    assert_eq!(
+        json["extra_body"]["google"]["thinking_config"]["thinkingLevel"],
+        "high"
+    );
+    assert_eq!(
+        json["extra_body"]["google"]["thinking_config"]["include_thoughts"],
+        true
+    );
+}
+
+#[test]
+fn openai_completion_json_preserves_reasoning_and_tool_call_extra_content() {
+    let response = serde_json::json!({
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "gemini-3-pro",
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "done",
+                "reasoning_content": "hidden",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": "{\"q\":\"a\"}"},
+                    "extra_content": {
+                        "google": {"thought_signature": "sig_123"}
+                    }
+                }]
+            },
+            "finish_reason": "stop"
+        }]
+    });
+
+    let normalized = OpenAiCompatibleChatClient::normalize_completion_json(response).unwrap();
+
+    assert_eq!(normalized.content, "done");
+    assert_eq!(normalized.reasoning_content.as_deref(), Some("hidden"));
+    assert_eq!(normalized.tool_calls[0].name, "lookup");
+    assert_eq!(
+        normalized.tool_calls[0]
+            .extra_content
+            .as_ref()
+            .expect("extra content")["google"]["thought_signature"],
+        "sig_123"
+    );
 }
 
 #[test]
@@ -169,6 +267,7 @@ fn anthropic_adapter_extracts_system_prompt_and_user_messages() {
         },
         tools: Vec::new(),
         tool_choice: None,
+        extra_body: serde_json::Value::Null,
     };
 
     let json = client.to_anthropic_json(&request).unwrap();
@@ -201,6 +300,7 @@ fn anthropic_adapter_maps_image_content_for_native_multimodal_models() {
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
+            reasoning_content: None,
         }],
         options: ChatRequestOptions {
             max_tokens: Some(128),
@@ -208,6 +308,7 @@ fn anthropic_adapter_maps_image_content_for_native_multimodal_models() {
         },
         tools: Vec::new(),
         tool_choice: None,
+        extra_body: serde_json::Value::Null,
     };
 
     let json = client.to_anthropic_json(&request).unwrap();
@@ -239,6 +340,7 @@ fn anthropic_adapter_maps_tools_and_multi_turn_tool_messages() {
                     "get_current_weather",
                     r#"{"location":"New York"}"#,
                 )],
+                reasoning_content: None,
             },
             Message {
                 role: MessageRole::Tool,
@@ -248,6 +350,7 @@ fn anthropic_adapter_maps_tools_and_multi_turn_tool_messages() {
                 name: None,
                 tool_call_id: Some("toolu_1".to_string()),
                 tool_calls: Vec::new(),
+                reasoning_content: None,
             },
         ],
         options: ChatRequestOptions {
@@ -266,6 +369,7 @@ fn anthropic_adapter_maps_tools_and_multi_turn_tool_messages() {
             }),
         )],
         tool_choice: Some("auto".to_string()),
+        extra_body: serde_json::Value::Null,
     };
 
     let json = client.to_anthropic_json(&request).unwrap();
@@ -302,10 +406,12 @@ fn openai_adapter_maps_image_content_for_vision_models() {
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
+            reasoning_content: None,
         }],
         options: Default::default(),
         tools: Vec::new(),
         tool_choice: None,
+        extra_body: serde_json::Value::Null,
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -341,6 +447,7 @@ fn openai_adapter_maps_tools_and_tool_choice() {
             }),
         )],
         tool_choice: Some("auto".to_string()),
+        extra_body: serde_json::Value::Null,
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -368,6 +475,7 @@ fn openai_adapter_maps_multi_turn_tool_messages() {
                     "get_current_weather",
                     r#"{"location":"New York"}"#,
                 )],
+                reasoning_content: None,
             },
             Message {
                 role: MessageRole::Tool,
@@ -377,11 +485,13 @@ fn openai_adapter_maps_multi_turn_tool_messages() {
                 name: None,
                 tool_call_id: Some("call_1".to_string()),
                 tool_calls: Vec::new(),
+                reasoning_content: None,
             },
         ],
         options: Default::default(),
         tools: Vec::new(),
         tool_choice: None,
+        extra_body: serde_json::Value::Null,
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -430,6 +540,42 @@ fn openai_stream_chunk_json_normalizes_content_tools_and_usage() {
     assert_eq!(usage.prompt_tokens, Some(3));
     assert_eq!(usage.completion_tokens, Some(4));
     assert_eq!(usage.total_tokens, Some(7));
+}
+
+#[test]
+fn openai_stream_chunk_json_preserves_tool_call_extra_content() {
+    let chunk = serde_json::json!({
+        "id": "chatcmpl-test",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "gemini-3-pro",
+        "choices": [{
+            "index": 0,
+            "delta": {
+                "tool_calls": [{
+                    "index": 0,
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": "{\"q\""},
+                    "extra_content": {
+                        "google": {"thought_signature": "sig_123"}
+                    }
+                }]
+            },
+            "finish_reason": null
+        }]
+    });
+
+    let delta = OpenAiCompatibleChatClient::normalize_stream_chunk_json(chunk).unwrap();
+
+    assert_eq!(delta.tool_calls[0].id, "call_1");
+    assert_eq!(
+        delta.tool_calls[0]
+            .extra_content
+            .as_ref()
+            .expect("extra content")["google"]["thought_signature"],
+        "sig_123"
+    );
 }
 
 #[test]

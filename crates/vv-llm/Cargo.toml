@@ -1,6 +1,6 @@
 [package]
 name = "vv-llm"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 description = "Rust implementation surface for vv-llm"
@@ -20,7 +20,7 @@ anthropic = "0.0.8"
 aws-credential-types = "1.2.14"
 aws-sdk-bedrockruntime = "1.131.0"
 aws-smithy-types = "1.4.8"
-async-openai = { version = "0.40.2", features = ["chat-completion", "embedding"] }
+async-openai = { version = "0.40.2", features = ["byot", "chat-completion", "embedding"] }
 async-trait = "0.1"
 base64 = "0.22"
 futures-core = "0.3"

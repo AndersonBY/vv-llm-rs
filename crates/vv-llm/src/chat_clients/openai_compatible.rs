@@ -19,6 +19,7 @@ use async_openai::{
 };
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use serde_json::Value;
 
 use super::{ChatClient, ChatStream};
 
@@ -43,16 +44,27 @@ impl OpenAiCompatibleChatClient {
     }
 
     pub fn to_openai_json(&self, request: &ChatRequest) -> Result<serde_json::Value, VvLlmError> {
-        let request = self.to_openai_request(request)?;
-        Ok(serde_json::to_value(request)?)
+        let openai_request = self.to_openai_request(request)?;
+        let mut json = serde_json::to_value(openai_request)?;
+        merge_openai_request_extensions(&mut json, request);
+        Ok(json)
     }
 
     pub fn normalize_stream_chunk_json(
         chunk: serde_json::Value,
     ) -> Result<ChatStreamDelta, VvLlmError> {
+        let extra_content = stream_tool_call_extra_content(&chunk);
         let chunk: async_openai::types::chat::CreateChatCompletionStreamResponse =
             serde_json::from_value(chunk)?;
-        Ok(normalize_openai_stream_chunk(chunk))
+        let mut delta = normalize_openai_stream_chunk(chunk);
+        apply_stream_tool_call_extra_content(&mut delta, extra_content);
+        Ok(delta)
+    }
+
+    pub fn normalize_completion_json(
+        response: serde_json::Value,
+    ) -> Result<ChatResponse, VvLlmError> {
+        normalize_openai_completion_json(response)
     }
 
     fn to_openai_request(
@@ -117,41 +129,47 @@ impl ChatClient for OpenAiCompatibleChatClient {
     }
 
     async fn create_completion(&self, request: ChatRequest) -> Result<ChatResponse, VvLlmError> {
-        let response = self
-            .client()
+        let client = self.client();
+        if request_needs_byot(&request) {
+            let request_json = self.to_openai_json(&request)?;
+            let response_json: Value = client
+                .chat()
+                .create_byot(&request_json)
+                .await
+                .map_err(|error| VvLlmError::Provider(error.to_string()))?;
+            return normalize_openai_completion_json(response_json);
+        }
+        let response = client
             .chat()
             .create(self.to_openai_request(&request)?)
             .await
             .map_err(|error| VvLlmError::Provider(error.to_string()))?;
-
-        let first_choice = response.choices.first();
-        let content = first_choice
-            .and_then(|choice| choice.message.content.clone())
-            .unwrap_or_default();
-        let tool_calls = first_choice
-            .and_then(|choice| choice.message.tool_calls.clone())
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(from_openai_tool_call)
-            .collect();
-        let usage = response.usage.map(|usage| ChatUsage {
-            prompt_tokens: Some(usage.prompt_tokens),
-            completion_tokens: Some(usage.completion_tokens),
-            total_tokens: Some(usage.total_tokens),
-        });
-
-        Ok(ChatResponse {
-            id: response.id,
-            model: response.model,
-            content,
-            tool_calls,
-            usage,
-        })
+        Ok(normalize_openai_completion_response(response))
     }
 
     async fn create_stream(&self, request: ChatRequest) -> Result<ChatStream, VvLlmError> {
-        let stream = self
-            .client()
+        let client = self.client();
+        if request_needs_byot(&request) {
+            let request_json = self.to_openai_json(&request)?;
+            let stream: std::pin::Pin<
+                Box<
+                    dyn futures_core::Stream<Item = Result<Value, async_openai::error::OpenAIError>>
+                        + Send,
+                >,
+            > = client
+                .chat()
+                .create_stream_byot(&request_json)
+                .await
+                .map_err(|error| VvLlmError::Provider(error.to_string()))?;
+            let mut normalizer = TaggedReasoningNormalizer::for_model(&request.model);
+            return Ok(Box::pin(stream.map(move |chunk| {
+                chunk
+                    .map_err(|error| VvLlmError::Provider(error.to_string()))
+                    .and_then(OpenAiCompatibleChatClient::normalize_stream_chunk_json)
+                    .map(|delta| normalizer.normalize(delta))
+            })));
+        }
+        let stream = client
             .chat()
             .create_stream(self.to_openai_request(&request)?)
             .await
@@ -310,9 +328,95 @@ fn from_openai_tool_call(tool_call: ChatCompletionMessageToolCalls) -> Option<To
             id: function_call.id,
             name: function_call.function.name,
             arguments: function_call.function.arguments,
+            extra_content: None,
         }),
         ChatCompletionMessageToolCalls::Custom(_) => None,
     }
+}
+
+fn normalize_openai_completion_json(response: Value) -> Result<ChatResponse, VvLlmError> {
+    let reasoning_content = completion_reasoning_content(&response);
+    let extra_content = completion_tool_call_extra_content(&response);
+    let response: async_openai::types::chat::CreateChatCompletionResponse =
+        serde_json::from_value(response)?;
+    let mut normalized = normalize_openai_completion_response(response);
+    normalized.reasoning_content = reasoning_content;
+    apply_tool_call_extra_content(&mut normalized.tool_calls, extra_content);
+    Ok(normalized)
+}
+
+fn normalize_openai_completion_response(
+    response: async_openai::types::chat::CreateChatCompletionResponse,
+) -> ChatResponse {
+    let first_choice = response.choices.first();
+    let content = first_choice
+        .and_then(|choice| choice.message.content.clone())
+        .unwrap_or_default();
+    let tool_calls = first_choice
+        .and_then(|choice| choice.message.tool_calls.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(from_openai_tool_call)
+        .collect();
+    let usage = response.usage.map(|usage| ChatUsage {
+        prompt_tokens: Some(usage.prompt_tokens),
+        completion_tokens: Some(usage.completion_tokens),
+        total_tokens: Some(usage.total_tokens),
+    });
+
+    ChatResponse {
+        id: response.id,
+        model: response.model,
+        content,
+        tool_calls,
+        reasoning_content: None,
+        usage,
+    }
+}
+
+fn completion_reasoning_content(response: &Value) -> Option<String> {
+    response
+        .pointer("/choices/0/message/reasoning_content")
+        .or_else(|| response.pointer("/choices/0/message/reasoning"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn completion_tool_call_extra_content(response: &Value) -> Vec<Option<Value>> {
+    response
+        .pointer("/choices/0/message/tool_calls")
+        .and_then(Value::as_array)
+        .map(|tool_calls| tool_call_extra_content(tool_calls))
+        .unwrap_or_default()
+}
+
+fn stream_tool_call_extra_content(chunk: &Value) -> Vec<Option<Value>> {
+    chunk
+        .pointer("/choices/0/delta/tool_calls")
+        .and_then(Value::as_array)
+        .map(|tool_calls| tool_call_extra_content(tool_calls))
+        .unwrap_or_default()
+}
+
+fn tool_call_extra_content(tool_calls: &[Value]) -> Vec<Option<Value>> {
+    tool_calls
+        .iter()
+        .map(|tool_call| tool_call.get("extra_content").cloned())
+        .collect()
+}
+
+fn apply_tool_call_extra_content(tool_calls: &mut [ToolCall], extra_content: Vec<Option<Value>>) {
+    for (tool_call, extra_content) in tool_calls.iter_mut().zip(extra_content) {
+        tool_call.extra_content = extra_content;
+    }
+}
+
+fn apply_stream_tool_call_extra_content(
+    delta: &mut ChatStreamDelta,
+    extra_content: Vec<Option<Value>>,
+) {
+    apply_tool_call_extra_content(&mut delta.tool_calls, extra_content);
 }
 
 fn normalize_openai_stream_chunk(
@@ -347,12 +451,88 @@ fn normalize_openai_stream_chunk(
                     arguments: function
                         .and_then(|function| function.arguments)
                         .unwrap_or_default(),
+                    extra_content: None,
                 });
             }
         }
     }
 
     TaggedReasoningNormalizer::for_model(&model).normalize(delta)
+}
+
+fn request_needs_byot(request: &ChatRequest) -> bool {
+    !is_empty_extra_body(&request.extra_body) || request.messages.iter().any(message_needs_byot)
+}
+
+fn message_needs_byot(message: &Message) -> bool {
+    message
+        .reasoning_content
+        .as_deref()
+        .map(|value| !value.is_empty())
+        .unwrap_or(false)
+        || message
+            .tool_calls
+            .iter()
+            .any(|tool_call| tool_call.extra_content.is_some())
+}
+
+fn merge_openai_request_extensions(json: &mut Value, request: &ChatRequest) {
+    merge_extra_body(json, &request.extra_body);
+    let Some(messages) = json.get_mut("messages").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for (payload, message) in messages.iter_mut().zip(&request.messages) {
+        merge_message_extensions(payload, message);
+    }
+}
+
+fn merge_extra_body(json: &mut Value, extra_body: &Value) {
+    if is_empty_extra_body(extra_body) {
+        return;
+    }
+    let Some(target) = json.as_object_mut() else {
+        return;
+    };
+    if let Some(object) = extra_body.as_object() {
+        for (key, value) in object {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+}
+
+fn merge_message_extensions(payload: &mut Value, message: &Message) {
+    if let Some(reasoning_content) = message
+        .reasoning_content
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        if let Some(object) = payload.as_object_mut() {
+            object.insert(
+                "reasoning_content".to_string(),
+                Value::String(reasoning_content.to_string()),
+            );
+        }
+    }
+
+    let Some(tool_calls) = payload.get_mut("tool_calls").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for (payload_tool_call, tool_call) in tool_calls.iter_mut().zip(&message.tool_calls) {
+        let Some(extra_content) = &tool_call.extra_content else {
+            continue;
+        };
+        if let Some(object) = payload_tool_call.as_object_mut() {
+            object.insert("extra_content".to_string(), extra_content.clone());
+        }
+    }
+}
+
+fn is_empty_extra_body(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Object(object) => object.is_empty(),
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone)]
