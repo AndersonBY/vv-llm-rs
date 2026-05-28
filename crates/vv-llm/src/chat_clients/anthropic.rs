@@ -389,6 +389,7 @@ impl ChatClient for AnthropicBedrockChatClient {
                             id: tool_use.tool_use_id,
                             name: tool_use.name,
                             arguments: document_to_json(&tool_use.input)?.to_string(),
+                            index: None,
                             extra_content: None,
                         });
                     }
@@ -956,6 +957,7 @@ fn normalize_anthropic_stream_json(value: Value) -> Result<Option<ChatStreamDelt
                         id: String::new(),
                         name: String::new(),
                         arguments: value_to_string(delta.get("partial_json")),
+                        index: None,
                         extra_content: None,
                     }],
                     ..Default::default()
@@ -1001,6 +1003,7 @@ fn tool_call_from_anthropic_block(block: &Value) -> Result<ToolCall, VvLlmError>
             .cloned()
             .unwrap_or_else(|| json!({}))
             .to_string(),
+        index: None,
         extra_content: None,
     })
 }
@@ -1084,6 +1087,7 @@ fn normalize_bedrock_stream_event(
                     id: tool_use.tool_use_id,
                     name: tool_use.name,
                     arguments: String::new(),
+                    index: Some(event.content_block_index as usize),
                     extra_content: None,
                 };
                 state
@@ -1129,6 +1133,7 @@ fn normalize_bedrock_stream_event(
                             id: String::new(),
                             name: String::new(),
                             arguments: String::new(),
+                            index: Some(event.content_block_index as usize),
                             extra_content: None,
                         });
                     tool_call.arguments.push_str(&tool_use.input);
@@ -1137,6 +1142,7 @@ fn normalize_bedrock_stream_event(
                             id: tool_call.id.clone(),
                             name: tool_call.name.clone(),
                             arguments: tool_use.input,
+                            index: Some(event.content_block_index as usize),
                             extra_content: None,
                         }],
                         ..Default::default()

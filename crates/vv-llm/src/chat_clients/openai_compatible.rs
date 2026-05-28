@@ -330,6 +330,7 @@ fn from_openai_tool_call(tool_call: ChatCompletionMessageToolCalls) -> Option<To
             id: function_call.id,
             name: function_call.function.name,
             arguments: function_call.function.arguments,
+            index: None,
             extra_content: None,
         }),
         ChatCompletionMessageToolCalls::Custom(_) => None,
@@ -453,6 +454,7 @@ fn normalize_openai_stream_chunk(
                     arguments: function
                         .and_then(|function| function.arguments)
                         .unwrap_or_default(),
+                    index: Some(tool_call.index as usize),
                     extra_content: None,
                 });
             }

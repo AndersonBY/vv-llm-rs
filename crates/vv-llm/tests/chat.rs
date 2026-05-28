@@ -166,6 +166,7 @@ fn openai_compatible_adapter_preserves_reasoning_extra_content_and_extra_body() 
                 id: "call_1".to_string(),
                 name: "default_api:list_files".to_string(),
                 arguments: r#"{"path":"."}"#.to_string(),
+                index: None,
                 extra_content: Some(serde_json::json!({
                     "google": {"thought_signature": "sig_123"}
                 })),
@@ -580,14 +581,40 @@ fn openai_stream_chunk_json_normalizes_content_tools_and_usage() {
     let delta = OpenAiCompatibleChatClient::normalize_stream_chunk_json(chunk).unwrap();
 
     assert_eq!(delta.content, "hel");
-    assert_eq!(
-        delta.tool_calls,
-        vec![ToolCall::function("call_1", "lookup", "{\"q\"")]
-    );
+    assert_eq!(delta.tool_calls[0].id, "call_1");
+    assert_eq!(delta.tool_calls[0].name, "lookup");
+    assert_eq!(delta.tool_calls[0].arguments, "{\"q\"");
+    assert_eq!(delta.tool_calls[0].index, Some(0));
     let usage = delta.usage.unwrap();
     assert_eq!(usage.prompt_tokens, Some(3));
     assert_eq!(usage.completion_tokens, Some(4));
     assert_eq!(usage.total_tokens, Some(7));
+}
+
+#[test]
+fn openai_stream_chunk_json_preserves_tool_call_index() {
+    let chunk = serde_json::json!({
+        "id": "chatcmpl-test",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "gpt-4o",
+        "choices": [{
+            "index": 0,
+            "delta": {
+                "tool_calls": [{
+                    "index": 2,
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": "{\"q\""}
+                }]
+            },
+            "finish_reason": null
+        }]
+    });
+
+    let delta = OpenAiCompatibleChatClient::normalize_stream_chunk_json(chunk).unwrap();
+
+    assert_eq!(delta.tool_calls[0].index, Some(2));
 }
 
 #[test]

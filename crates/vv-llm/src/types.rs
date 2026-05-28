@@ -225,6 +225,8 @@ pub struct ToolCall {
     pub name: String,
     pub arguments: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_content: Option<serde_json::Value>,
 }
 
@@ -238,6 +240,7 @@ impl ToolCall {
             id: id.into(),
             name: name.into(),
             arguments: arguments.into(),
+            index: None,
             extra_content: None,
         }
     }
