@@ -143,6 +143,6 @@ Utilities are deliberately small:
 
 - `normalize_text_messages` merges adjacent text-only messages with the same role and metadata.
 - `count_tokens` uses `tiktoken-rs` for supported OpenAI-family encodings and falls back deterministically for unknown models.
+- `count_tokens_with_settings` matches the Python utility behavior by preferring a configured token server, then provider tokenizer endpoints for providers that expose one, then local fallback.
+- `count_message_tokens`, `calculate_image_tokens`, and `cutoff_messages` mirror the Python chat request sizing helpers.
 - `RetryPolicy` stores retry metadata for callers that own retry loops.
-
-Do not put provider transport behavior in utilities.

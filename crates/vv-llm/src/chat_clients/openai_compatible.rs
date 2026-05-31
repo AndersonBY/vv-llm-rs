@@ -19,7 +19,7 @@ use async_openai::{
 };
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::{ChatClient, ChatStream};
 
@@ -498,7 +498,9 @@ fn normalize_openai_stream_chunk(
 }
 
 fn request_needs_byot(request: &ChatRequest) -> bool {
-    !is_empty_extra_body(&request.extra_body) || request.messages.iter().any(message_needs_byot)
+    !is_empty_extra_body(&request.extra_body)
+        || request.options.has_openai_json_extensions()
+        || request.messages.iter().any(message_needs_byot)
 }
 
 fn message_needs_byot(message: &Message) -> bool {
@@ -510,12 +512,88 @@ fn message_needs_byot(message: &Message) -> bool {
 }
 
 fn merge_openai_request_extensions(json: &mut Value, request: &ChatRequest) {
+    merge_openai_option_extensions(json, &request.options);
     merge_extra_body(json, &request.extra_body);
     let Some(messages) = json.get_mut("messages").and_then(Value::as_array_mut) else {
         return;
     };
     for (payload, message) in messages.iter_mut().zip(&request.messages) {
         merge_message_extensions(payload, message);
+    }
+}
+
+fn merge_openai_option_extensions(json: &mut Value, options: &crate::ChatRequestOptions) {
+    let Some(target) = json.as_object_mut() else {
+        return;
+    };
+    if let Some(max_completion_tokens) = options.max_completion_tokens {
+        target.insert(
+            "max_completion_tokens".to_string(),
+            json!(max_completion_tokens),
+        );
+    }
+    if let Some(top_p) = options.top_p {
+        target.insert("top_p".to_string(), json!(top_p));
+    }
+    if !options.stop.is_empty() {
+        target.insert("stop".to_string(), json!(options.stop));
+    }
+    if let Some(response_format) = &options.response_format {
+        target.insert("response_format".to_string(), response_format.clone());
+    }
+    if let Some(stream_options) = &options.stream_options {
+        target.insert("stream_options".to_string(), stream_options.clone());
+    }
+    if let Some(audio) = &options.audio {
+        target.insert("audio".to_string(), audio.clone());
+    }
+    if let Some(frequency_penalty) = options.frequency_penalty {
+        target.insert("frequency_penalty".to_string(), json!(frequency_penalty));
+    }
+    if let Some(logit_bias) = &options.logit_bias {
+        target.insert("logit_bias".to_string(), logit_bias.clone());
+    }
+    if let Some(logprobs) = options.logprobs {
+        target.insert("logprobs".to_string(), json!(logprobs));
+    }
+    if let Some(metadata) = &options.metadata {
+        target.insert("metadata".to_string(), metadata.clone());
+    }
+    if let Some(modalities) = &options.modalities {
+        target.insert("modalities".to_string(), modalities.clone());
+    }
+    if let Some(n) = options.n {
+        target.insert("n".to_string(), json!(n));
+    }
+    if let Some(parallel_tool_calls) = options.parallel_tool_calls {
+        target.insert(
+            "parallel_tool_calls".to_string(),
+            json!(parallel_tool_calls),
+        );
+    }
+    if let Some(prediction) = &options.prediction {
+        target.insert("prediction".to_string(), prediction.clone());
+    }
+    if let Some(presence_penalty) = options.presence_penalty {
+        target.insert("presence_penalty".to_string(), json!(presence_penalty));
+    }
+    if let Some(reasoning_effort) = &options.reasoning_effort {
+        target.insert("reasoning_effort".to_string(), json!(reasoning_effort));
+    }
+    if let Some(seed) = options.seed {
+        target.insert("seed".to_string(), json!(seed));
+    }
+    if let Some(service_tier) = &options.service_tier {
+        target.insert("service_tier".to_string(), json!(service_tier));
+    }
+    if let Some(store) = options.store {
+        target.insert("store".to_string(), json!(store));
+    }
+    if let Some(top_logprobs) = options.top_logprobs {
+        target.insert("top_logprobs".to_string(), json!(top_logprobs));
+    }
+    if let Some(user) = &options.user {
+        target.insert("user".to_string(), json!(user));
     }
 }
 

@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-vv-llm = "0.2.1"
+vv-llm = "0.3.0"
 ```
 
 包已经发布到官方 crates.io，名称是 `vv-llm`，Rust 代码中以 `vv_llm` 导入。本仓库本地开发时可以使用 `vv-llm = { path = "crates/vv-llm" }`。
@@ -296,20 +296,24 @@ Anthropic Bedrock endpoint 使用 `endpoint_type: "anthropic_bedrock"`，并配�
 - **多模态消息** — 对支持的 provider 发送文本和图片消息块
 - **Vertex 鉴权** — Google access token 换取和进程内缓存
 - **检索客户端** — OpenAI-compatible embedding 与自定义 JSON rerank
-- **Token 统计** — GPT-3.5、GPT-4o、o1、o3 系列使用 tiktoken，未知模型使用 deterministic fallback
+- **Token 统计** — 本地 tiktoken fallback，以及基于 settings 的 token server/provider tokenizer 调用
 - **类型化错误** — configuration、provider、HTTP、serialization、model、endpoint 等错误类型
 
 ## 工具函数
 
 ```rust
-use vv_llm::utilities::{count_tokens, count_tokens_fallback, normalize_text_messages, RetryPolicy};
+use vv_llm::utilities::{
+    count_message_tokens, count_tokens, count_tokens_with_settings, normalize_text_messages,
+    RetryPolicy,
+};
 ```
 
 | 函数 | 说明 |
 |---|---|
 | `normalize_text_messages` | 合并相邻同角色文本消息，不合并图片或工具数据 |
 | `count_tokens` | 使用支持的模型 tokenizer 统计 token |
-| `count_tokens_fallback` | deterministic whitespace fallback 计数 |
+| `count_tokens_with_settings` | 优先使用已配置的 token server 和 provider tokenizer endpoint，然后回退到本地计数 |
+| `count_message_tokens` | 统计 chat request 中的文本、图片占位和工具 token |
 | `RetryPolicy` | 给调用方使用的轻量 retry 元数据 helper |
 
 ## 目录结构

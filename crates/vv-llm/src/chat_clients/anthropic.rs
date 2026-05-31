@@ -84,6 +84,12 @@ impl AnthropicChatClient {
         if let Some(temperature) = request.options.temperature {
             builder.temperature(temperature as f64);
         }
+        if let Some(top_p) = request.options.top_p {
+            builder.top_p(top_p as f64);
+        }
+        if !request.options.stop.is_empty() {
+            builder.stop_sequences(request.options.stop.clone());
+        }
         builder
             .build()
             .map_err(|error| VvLlmError::Provider(error.to_string()))
@@ -517,6 +523,12 @@ fn to_anthropic_json(model: &str, request: &ChatRequest) -> Result<Value, VvLlmE
     if let Some(temperature) = request.options.temperature {
         value["temperature"] = json!(temperature);
     }
+    if let Some(top_p) = request.options.top_p {
+        value["top_p"] = json!(top_p);
+    }
+    if !request.options.stop.is_empty() {
+        value["stop_sequences"] = json!(request.options.stop);
+    }
     if !request.tools.is_empty() {
         value["tools"] = Value::Array(request.tools.iter().map(to_anthropic_tool).collect());
     }
@@ -652,19 +664,28 @@ fn to_bedrock_request(
         }
     }
 
-    let inference_config =
-        if request.options.max_tokens.is_some() || request.options.temperature.is_some() {
-            let mut builder = bedrock::InferenceConfiguration::builder();
-            if let Some(max_tokens) = request.options.max_tokens {
-                builder = builder.max_tokens(max_tokens as i32);
-            }
-            if let Some(temperature) = request.options.temperature {
-                builder = builder.temperature(temperature);
-            }
-            Some(builder.build())
-        } else {
-            None
-        };
+    let inference_config = if request.options.max_tokens.is_some()
+        || request.options.temperature.is_some()
+        || request.options.top_p.is_some()
+        || !request.options.stop.is_empty()
+    {
+        let mut builder = bedrock::InferenceConfiguration::builder();
+        if let Some(max_tokens) = request.options.max_tokens {
+            builder = builder.max_tokens(max_tokens as i32);
+        }
+        if let Some(temperature) = request.options.temperature {
+            builder = builder.temperature(temperature);
+        }
+        if let Some(top_p) = request.options.top_p {
+            builder = builder.top_p(top_p);
+        }
+        if !request.options.stop.is_empty() {
+            builder = builder.set_stop_sequences(Some(request.options.stop.clone()));
+        }
+        Some(builder.build())
+    } else {
+        None
+    };
 
     let tool_config = if request.tools.is_empty() {
         None
@@ -831,6 +852,33 @@ fn is_empty_extra_body(value: &Value) -> bool {
         Value::Null => true,
         Value::Object(object) => object.is_empty(),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bedrock_request_maps_python_style_chat_options() {
+        let request = ChatRequest {
+            model: "anthropic.claude-sonnet-4-6".to_string(),
+            messages: vec![Message::text(MessageRole::User, "hello")],
+            options: crate::ChatRequestOptions {
+                top_p: Some(0.8),
+                stop: vec!["END".to_string(), "DONE".to_string()],
+                ..Default::default()
+            },
+            tools: Vec::new(),
+            tool_choice: None,
+            extra_body: Value::Null,
+        };
+
+        let request = to_bedrock_request("anthropic.claude-sonnet-4-6", &request).unwrap();
+        let inference = request.inference_config.expect("inference config");
+
+        assert!((inference.top_p().unwrap() - 0.8).abs() < 0.000_001);
+        assert_eq!(inference.stop_sequences(), ["END", "DONE"]);
     }
 }
 

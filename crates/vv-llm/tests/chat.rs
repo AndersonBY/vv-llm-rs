@@ -44,6 +44,7 @@ fn factory_routes_anthropic_bedrock_endpoint_to_bedrock_adapter() {
         backend: "anthropic".to_string(),
         model: ModelConfig {
             id: "claude-sonnet".to_string(),
+            enabled: true,
             endpoints: vec![EndpointBinding::Id("bedrock-anthropic".to_string())],
             context_length: None,
             max_output_tokens: None,
@@ -51,6 +52,8 @@ fn factory_routes_anthropic_bedrock_endpoint_to_bedrock_adapter() {
             response_format_available: Some(false),
             native_multimodal: Some(true),
             protocol: None,
+            dimensions: None,
+            default_top_n: None,
             request_mapping: None,
             response_mapping: None,
             extra: Default::default(),
@@ -58,14 +61,24 @@ fn factory_routes_anthropic_bedrock_endpoint_to_bedrock_adapter() {
         model_id: "global.anthropic.claude-sonnet".to_string(),
         endpoint: EndpointConfig {
             id: "bedrock-anthropic".to_string(),
+            enabled: true,
             api_base: Some("https://bedrock-runtime.us-east-1.amazonaws.com".to_string()),
             api_key: None,
             organization: None,
+            response_api: false,
             endpoint_type: Some("anthropic_bedrock".to_string()),
             region: Some("us-east-1".to_string()),
-            is_bedrock: Some(true),
-            is_vertex: Some(false),
+            is_azure: false,
+            is_bedrock: true,
+            is_vertex: false,
             credentials: serde_json::json!({"access_key":"AKIA_TEST","secret_key":"SECRET_TEST"}),
+            rpm: 60,
+            tpm: 300_000,
+            concurrent_requests: 20,
+            proxy: None,
+            headers: None,
+            access_token: None,
+            access_token_expires_at: None,
             extra: Default::default(),
         },
     })
@@ -80,6 +93,7 @@ fn factory_routes_openai_vertex_endpoint_to_vertex_adapter() {
         backend: "openai".to_string(),
         model: ModelConfig {
             id: "google/gemini-2.5-flash".to_string(),
+            enabled: true,
             endpoints: vec![EndpointBinding::Id("vertex-openai".to_string())],
             context_length: None,
             max_output_tokens: None,
@@ -87,6 +101,8 @@ fn factory_routes_openai_vertex_endpoint_to_vertex_adapter() {
             response_format_available: Some(false),
             native_multimodal: Some(true),
             protocol: None,
+            dimensions: None,
+            default_top_n: None,
             request_mapping: None,
             response_mapping: None,
             extra: Default::default(),
@@ -94,14 +110,24 @@ fn factory_routes_openai_vertex_endpoint_to_vertex_adapter() {
         model_id: "google/gemini-2.5-flash".to_string(),
         endpoint: EndpointConfig {
             id: "vertex-openai".to_string(),
+            enabled: true,
             api_base: Some("https://aiplatform.googleapis.com/v1beta1/projects/p/locations/us-central1/endpoints/openapi".to_string()),
             api_key: None,
             organization: None,
+            response_api: false,
             endpoint_type: Some("openai_vertex".to_string()),
             region: Some("us-central1".to_string()),
-            is_bedrock: Some(false),
-            is_vertex: Some(true),
+            is_azure: false,
+            is_bedrock: false,
+            is_vertex: true,
             credentials: serde_json::json!({"access_token":"cached-token","access_token_expires_at":4102444800.0}),
+            rpm: 60,
+            tpm: 300_000,
+            concurrent_requests: 20,
+            proxy: None,
+            headers: None,
+            access_token: None,
+            access_token_expires_at: None,
             extra: Default::default(),
         },
     })
@@ -132,6 +158,7 @@ fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
             temperature: Some(0.2),
             max_tokens: Some(64),
             stream: Some(true),
+            ..Default::default()
         },
         tools: Vec::new(),
         tool_choice: None,
@@ -149,6 +176,84 @@ fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
     assert!((temperature - 0.2).abs() < 0.000_001);
     assert_eq!(json["max_tokens"], 64);
     assert_eq!(json["stream"], true);
+}
+
+#[test]
+fn openai_compatible_adapter_maps_python_style_chat_options() {
+    let client =
+        OpenAiCompatibleChatClient::new("fallback-model", "https://api.openai.com/v1", "sk-test");
+    let request = ChatRequest {
+        model: "gpt-5.2".to_string(),
+        messages: vec![Message::text(MessageRole::User, "Return JSON.")],
+        options: ChatRequestOptions {
+            temperature: Some(0.1),
+            max_tokens: Some(64),
+            max_completion_tokens: Some(96),
+            stream: Some(false),
+            top_p: Some(0.9),
+            stop: vec!["END".to_string(), "DONE".to_string()],
+            response_format: Some(serde_json::json!({"type": "json_object"})),
+            stream_options: Some(serde_json::json!({"include_usage": true})),
+            audio: Some(serde_json::json!({"voice": "alloy", "format": "mp3"})),
+            frequency_penalty: Some(0.2),
+            logit_bias: Some(serde_json::json!({"42": -5})),
+            logprobs: Some(true),
+            metadata: Some(serde_json::json!({"trace_id": "trace-1"})),
+            modalities: Some(serde_json::json!(["text"])),
+            n: Some(2),
+            parallel_tool_calls: Some(false),
+            prediction: Some(serde_json::json!({"type": "content", "content": "done"})),
+            presence_penalty: Some(0.3),
+            reasoning_effort: Some("medium".to_string()),
+            seed: Some(1234),
+            service_tier: Some("default".to_string()),
+            store: Some(false),
+            top_logprobs: Some(3),
+            user: Some("user-1".to_string()),
+        },
+        tools: Vec::new(),
+        tool_choice: None,
+        extra_body: serde_json::Value::Null,
+    };
+
+    let json = client.to_openai_json(&request).unwrap();
+
+    assert_eq!(json["model"], "gpt-5.2");
+    assert!((json["temperature"].as_f64().unwrap() - 0.1).abs() < 0.000_001);
+    assert_eq!(json["max_tokens"], 64);
+    assert_eq!(json["max_completion_tokens"], 96);
+    assert!((json["top_p"].as_f64().unwrap() - 0.9).abs() < 0.000_001);
+    assert_eq!(json["stop"], serde_json::json!(["END", "DONE"]));
+    assert_eq!(
+        json["response_format"],
+        serde_json::json!({"type": "json_object"})
+    );
+    assert_eq!(
+        json["stream_options"],
+        serde_json::json!({"include_usage": true})
+    );
+    assert_eq!(
+        json["audio"],
+        serde_json::json!({"voice": "alloy", "format": "mp3"})
+    );
+    assert!((json["frequency_penalty"].as_f64().unwrap() - 0.2).abs() < 0.000_001);
+    assert_eq!(json["logit_bias"], serde_json::json!({"42": -5}));
+    assert_eq!(json["logprobs"], true);
+    assert_eq!(json["metadata"], serde_json::json!({"trace_id": "trace-1"}));
+    assert_eq!(json["modalities"], serde_json::json!(["text"]));
+    assert_eq!(json["n"], 2);
+    assert_eq!(json["parallel_tool_calls"], false);
+    assert_eq!(
+        json["prediction"],
+        serde_json::json!({"type": "content", "content": "done"})
+    );
+    assert!((json["presence_penalty"].as_f64().unwrap() - 0.3).abs() < 0.000_001);
+    assert_eq!(json["reasoning_effort"], "medium");
+    assert_eq!(json["seed"], 1234);
+    assert_eq!(json["service_tier"], "default");
+    assert_eq!(json["store"], false);
+    assert_eq!(json["top_logprobs"], 3);
+    assert_eq!(json["user"], "user-1");
 }
 
 #[test]
@@ -289,6 +394,7 @@ fn anthropic_adapter_extracts_system_prompt_and_user_messages() {
             temperature: Some(0.5),
             max_tokens: Some(128),
             stream: Some(false),
+            ..Default::default()
         },
         tools: Vec::new(),
         tool_choice: None,
@@ -304,6 +410,30 @@ fn anthropic_adapter_extracts_system_prompt_and_user_messages() {
     assert_eq!(json["messages"][1]["role"], "assistant");
     assert_eq!(json["max_tokens"], 128);
     assert_eq!(json["temperature"], 0.5);
+}
+
+#[test]
+fn anthropic_adapter_maps_python_style_chat_options() {
+    let client =
+        AnthropicChatClient::new("claude-sonnet-4-6", "https://api.anthropic.com", "sk-test");
+    let request = ChatRequest {
+        model: "claude-sonnet-4-6".to_string(),
+        messages: vec![Message::text(MessageRole::User, "hello")],
+        options: ChatRequestOptions {
+            max_tokens: Some(128),
+            top_p: Some(0.8),
+            stop: vec!["END".to_string(), "DONE".to_string()],
+            ..Default::default()
+        },
+        tools: Vec::new(),
+        tool_choice: None,
+        extra_body: serde_json::Value::Null,
+    };
+
+    let json = client.to_anthropic_json(&request).unwrap();
+
+    assert!((json["top_p"].as_f64().unwrap() - 0.8).abs() < 0.000_001);
+    assert_eq!(json["stop_sequences"], serde_json::json!(["END", "DONE"]));
 }
 
 #[test]

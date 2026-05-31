@@ -74,8 +74,10 @@ Credential detection accepts:
 
 - DeepSeek OpenAI-compatible chat completion.
 - Qwen OpenAI-compatible chat with system prompt.
+- Qwen `qwen3.7-max` OpenAI-compatible chat completion.
 - ZhiPuAI OpenAI-compatible chat completion.
 - Anthropic resolved client chat.
+- Anthropic `claude-opus-4-8` resolved client chat.
 - Anthropic Bedrock image understanding.
 - Anthropic Bedrock tool call.
 - Anthropic Bedrock tool-result multi-turn conversation.

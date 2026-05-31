@@ -159,7 +159,75 @@ pub struct ChatRequestOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_completion_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stop: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frequency_penalty: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logit_bias: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logprobs: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modalities: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parallel_tool_calls: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prediction: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presence_penalty: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_logprobs: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+}
+
+impl ChatRequestOptions {
+    pub fn has_openai_json_extensions(&self) -> bool {
+        self.max_completion_tokens.is_some()
+            || self.top_p.is_some()
+            || !self.stop.is_empty()
+            || self.response_format.is_some()
+            || self.stream_options.is_some()
+            || self.audio.is_some()
+            || self.frequency_penalty.is_some()
+            || self.logit_bias.is_some()
+            || self.logprobs.is_some()
+            || self.metadata.is_some()
+            || self.modalities.is_some()
+            || self.n.is_some()
+            || self.parallel_tool_calls.is_some()
+            || self.prediction.is_some()
+            || self.presence_penalty.is_some()
+            || self.reasoning_effort.is_some()
+            || self.seed.is_some()
+            || self.service_tier.is_some()
+            || self.store.is_some()
+            || self.top_logprobs.is_some()
+            || self.user.is_some()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

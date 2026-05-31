@@ -48,7 +48,7 @@ pub fn create_chat_client_from_resolved(
     let api_key = resolved.endpoint.api_key.unwrap_or_default();
 
     if backend == BackendType::Anthropic.as_str()
-        && (resolved.endpoint.is_bedrock.unwrap_or(false)
+        && (resolved.endpoint.is_bedrock
             || resolved.endpoint.endpoint_type.as_deref() == Some("anthropic_bedrock"))
     {
         return Ok(Box::new(AnthropicBedrockChatClient::new(

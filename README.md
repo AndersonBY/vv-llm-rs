@@ -6,7 +6,7 @@ Universal LLM client layer for Rust. One typed API for chat, streaming, embeddin
 
 ```toml
 [dependencies]
-vv-llm = "0.2.1"
+vv-llm = "0.3.0"
 ```
 
 The crate is published on crates.io as `vv-llm`; Rust code imports it as `vv_llm`. For local development in this repository, use `vv-llm = { path = "crates/vv-llm" }`.
@@ -304,20 +304,24 @@ Anthropic Bedrock endpoints are configured with `endpoint_type: "anthropic_bedro
 - **Multimodal messages** — text and image parts for supported providers
 - **Vertex authentication** — Google access-token exchange with in-process cache
 - **Retrieval clients** — OpenAI-compatible embeddings and custom JSON rerank
-- **Token counting** — tiktoken-based counts for GPT-3.5, GPT-4o, o1, and o3 families with deterministic fallback
+- **Token counting** — local tiktoken fallback plus settings-aware token server/provider tokenizer calls
 - **Typed errors** — configuration, provider, HTTP, serialization, model, and endpoint errors
 
 ## Utilities
 
 ```rust
-use vv_llm::utilities::{count_tokens, count_tokens_fallback, normalize_text_messages, RetryPolicy};
+use vv_llm::utilities::{
+    count_message_tokens, count_tokens, count_tokens_with_settings, normalize_text_messages,
+    RetryPolicy,
+};
 ```
 
 | Function | Description |
 |---|---|
 | `normalize_text_messages` | Merge adjacent same-role text messages without merging images or tool data |
 | `count_tokens` | Count tokens with supported model tokenizers |
-| `count_tokens_fallback` | Deterministic whitespace fallback counter |
+| `count_tokens_with_settings` | Prefer configured token server and provider tokenizer endpoints, then fall back locally |
+| `count_message_tokens` | Count formatted text, image placeholders, and tools for chat requests |
 | `RetryPolicy` | Small retry metadata helper for callers that manage retries externally |
 
 ## Project Structure

@@ -79,6 +79,42 @@ async fn live_qwen_openai_compatible_chat_with_system_prompt() {
 
 #[tokio::test]
 #[ignore = "live API call; run with VV_LLM_RUN_LIVE_TESTS=1 cargo test --test live_tests -- --ignored"]
+async fn live_qwen_3_7_max_openai_compatible_chat_completion() {
+    require_live();
+    let settings = load_live_settings(true).unwrap();
+    let (model, api_base, api_key) = resolved_parts(
+        settings
+            .resolve_chat_model(BackendType::Qwen, "qwen3.7-max")
+            .unwrap(),
+    );
+    let client = create_chat_client(BackendType::Qwen, model.clone(), api_base, api_key);
+
+    let response = run_with_timer("qwen_3_7_max_chat", || async {
+        client
+            .create_completion(ChatRequest {
+                model,
+                messages: vec![Message::text(
+                    MessageRole::User,
+                    "Reply with the word pong.",
+                )],
+                options: ChatRequestOptions {
+                    max_tokens: Some(32),
+                    ..Default::default()
+                },
+                tools: Vec::new(),
+                tool_choice: None,
+                extra_body: serde_json::Value::Null,
+            })
+            .await
+    })
+    .await
+    .unwrap();
+
+    assert!(response.content.to_ascii_lowercase().contains("pong"));
+}
+
+#[tokio::test]
+#[ignore = "live API call; run with VV_LLM_RUN_LIVE_TESTS=1 cargo test --test live_tests -- --ignored"]
 async fn live_zhipuai_openai_compatible_chat_completion() {
     require_live();
     let settings = load_live_settings(true).unwrap();
@@ -130,6 +166,41 @@ async fn live_anthropic_chat_from_resolved() {
                     Message::text(MessageRole::User, "Say pong."),
                 ],
                 options: Default::default(),
+                tools: Vec::new(),
+                tool_choice: None,
+                extra_body: serde_json::Value::Null,
+            })
+            .await
+    })
+    .await
+    .unwrap();
+
+    assert!(response.content.to_ascii_lowercase().contains("pong"));
+}
+
+#[tokio::test]
+#[ignore = "live API call; run with VV_LLM_RUN_LIVE_TESTS=1 cargo test --test live_tests -- --ignored"]
+async fn live_claude_opus_4_8_chat_from_resolved() {
+    require_live();
+    let settings = load_live_settings(true).unwrap();
+    let resolved = settings
+        .resolve_chat_model(BackendType::Anthropic, "claude-opus-4-8")
+        .unwrap();
+    let model = resolved.model_id.clone();
+    let client = create_chat_client_from_resolved(resolved).unwrap();
+
+    let response = run_with_timer("claude_opus_4_8_chat", || async {
+        client
+            .create_completion(ChatRequest {
+                model,
+                messages: vec![Message::text(
+                    MessageRole::User,
+                    "Reply with the word pong.",
+                )],
+                options: ChatRequestOptions {
+                    max_tokens: Some(32),
+                    ..Default::default()
+                },
                 tools: Vec::new(),
                 tool_choice: None,
                 extra_body: serde_json::Value::Null,
