@@ -337,6 +337,11 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
         .get("anthropic")
         .and_then(|backend| backend.models.get("claude-opus-4-8"))
         .expect("claude-opus-4-8 should come from the Python default catalog");
+    let minimax = settings
+        .backends
+        .get("minimax")
+        .and_then(|backend| backend.models.get("MiniMax-M3"))
+        .expect("MiniMax-M3 should come from the Python default catalog");
 
     assert_eq!(
         default_chat_model(BackendType::Qwen),
@@ -349,6 +354,11 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
     assert_eq!(qwen.native_multimodal, Some(false));
     assert_eq!(anthropic.max_output_tokens, Some(128_000));
     assert_eq!(anthropic.native_multimodal, Some(true));
+    assert_eq!(minimax.context_length, Some(1_000_000));
+    assert_eq!(minimax.max_output_tokens, Some(10_240));
+    assert_eq!(minimax.function_call_available, Some(true));
+    assert_eq!(minimax.response_format_available, Some(true));
+    assert_eq!(minimax.native_multimodal, Some(true));
 }
 
 #[test]

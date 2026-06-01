@@ -1256,6 +1256,14 @@
           "response_format_available": true,
           "native_multimodal": false
         },
+        "MiniMax-M3": {
+          "id": "MiniMax-M3",
+          "context_length": 1000000,
+          "max_output_tokens": 10240,
+          "function_call_available": true,
+          "response_format_available": true,
+          "native_multimodal": true
+        },
         "MiniMax-M2.7-highspeed": {
           "id": "MiniMax-M2.7-highspeed",
           "context_length": 204800,
