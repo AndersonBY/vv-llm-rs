@@ -357,11 +357,21 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
         .get("anthropic")
         .and_then(|backend| backend.models.get("claude-opus-4-6"))
         .expect("claude-opus-4-6 should come from the Python default catalog");
+    let anthropic_sonnet_5 = settings
+        .backends
+        .get("anthropic")
+        .and_then(|backend| backend.models.get("claude-sonnet-5"))
+        .expect("claude-sonnet-5 should come from the Python default catalog");
     let minimax = settings
         .backends
         .get("minimax")
         .and_then(|backend| backend.models.get("MiniMax-M3"))
         .expect("MiniMax-M3 should come from the Python default catalog");
+    let ernie_51 = settings
+        .backends
+        .get("ernie")
+        .and_then(|backend| backend.models.get("ernie-5.1"))
+        .expect("ernie-5.1 should come from the Python default catalog");
 
     assert_eq!(default_chat_model(BackendType::Moonshot), Some("kimi-k2.6"));
     assert_eq!(
@@ -404,11 +414,18 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
     assert_eq!(anthropic_fable.context_length, Some(1_000_000));
     assert_eq!(anthropic_fable.max_output_tokens, Some(128_000));
     assert_eq!(anthropic_fable.native_multimodal, Some(true));
+    assert_eq!(anthropic_sonnet_5.context_length, Some(1_000_000));
+    assert_eq!(anthropic_sonnet_5.max_output_tokens, Some(128_000));
+    assert_eq!(anthropic_sonnet_5.native_multimodal, Some(true));
     assert_eq!(minimax.context_length, Some(1_000_000));
     assert_eq!(minimax.max_output_tokens, Some(10_240));
     assert_eq!(minimax.function_call_available, Some(true));
     assert_eq!(minimax.response_format_available, Some(true));
     assert_eq!(minimax.native_multimodal, Some(true));
+    assert_eq!(ernie_51.context_length, Some(128_000));
+    assert_eq!(ernie_51.max_output_tokens, Some(65_536));
+    assert_eq!(ernie_51.response_format_available, Some(true));
+    assert_eq!(ernie_51.native_multimodal, Some(false));
 }
 
 #[test]

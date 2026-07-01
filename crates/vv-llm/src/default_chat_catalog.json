@@ -1226,6 +1226,14 @@
           "function_call_available": true,
           "response_format_available": false,
           "native_multimodal": true
+        },
+        "claude-sonnet-5": {
+          "id": "claude-sonnet-5",
+          "context_length": 1000000,
+          "max_output_tokens": 128000,
+          "function_call_available": true,
+          "response_format_available": false,
+          "native_multimodal": true
         }
       }
     },
@@ -1467,6 +1475,30 @@
           "id": "ernie-4.5-8k-preview",
           "context_length": 5120,
           "max_output_tokens": 2048,
+          "function_call_available": false,
+          "response_format_available": true,
+          "native_multimodal": false
+        },
+        "ernie-4.5-turbo-128k": {
+          "id": "ernie-4.5-turbo-128k",
+          "context_length": 128000,
+          "max_output_tokens": 65536,
+          "function_call_available": false,
+          "response_format_available": true,
+          "native_multimodal": false
+        },
+        "ernie-5.0": {
+          "id": "ernie-5.0",
+          "context_length": 128000,
+          "max_output_tokens": 65536,
+          "function_call_available": false,
+          "response_format_available": true,
+          "native_multimodal": true
+        },
+        "ernie-5.1": {
+          "id": "ernie-5.1",
+          "context_length": 128000,
+          "max_output_tokens": 65536,
           "function_call_available": false,
           "response_format_available": true,
           "native_multimodal": false
