@@ -372,6 +372,21 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
         .get("ernie")
         .and_then(|backend| backend.models.get("ernie-5.1"))
         .expect("ernie-5.1 should come from the Python default catalog");
+    let openai_gpt_56_sol = settings
+        .backends
+        .get("openai")
+        .and_then(|backend| backend.models.get("gpt-5.6-sol"))
+        .expect("gpt-5.6-sol should come from the Python default catalog");
+    let openai_gpt_56_terra = settings
+        .backends
+        .get("openai")
+        .and_then(|backend| backend.models.get("gpt-5.6-terra"))
+        .expect("gpt-5.6-terra should come from the Python default catalog");
+    let openai_gpt_56_luna = settings
+        .backends
+        .get("openai")
+        .and_then(|backend| backend.models.get("gpt-5.6-luna"))
+        .expect("gpt-5.6-luna should come from the Python default catalog");
 
     assert_eq!(default_chat_model(BackendType::Moonshot), Some("kimi-k2.6"));
     assert_eq!(
@@ -426,6 +441,13 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
     assert_eq!(ernie_51.max_output_tokens, Some(65_536));
     assert_eq!(ernie_51.response_format_available, Some(true));
     assert_eq!(ernie_51.native_multimodal, Some(false));
+    for model in [openai_gpt_56_sol, openai_gpt_56_terra, openai_gpt_56_luna] {
+        assert_eq!(model.context_length, Some(1_050_000));
+        assert_eq!(model.max_output_tokens, Some(128_000));
+        assert_eq!(model.function_call_available, Some(true));
+        assert_eq!(model.response_format_available, Some(true));
+        assert_eq!(model.native_multimodal, Some(true));
+    }
 }
 
 #[test]
