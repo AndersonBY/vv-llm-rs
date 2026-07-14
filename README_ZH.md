@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-vv-llm = "0.3.1"
+vv-llm = "0.4.0"
 ```
 
 包已经发布到官方 crates.io，名称是 `vv-llm`，Rust 代码中以 `vv_llm` 导入。本仓库本地开发时可以使用 `vv-llm = { path = "crates/vv-llm" }`。
@@ -150,6 +150,12 @@ while let Some(delta) = stream.next().await {
 
 OpenAI-compatible stream 会归一化文本、工具调用、usage chunk，以及 `<think>...</think>` 或 Gemini `<thought>...</thought>` 这类 tagged reasoning。Anthropic Bedrock stream 会归一化文本、工具调用、reasoning 和 usage 事件。直接 Anthropic SDK 路径目前只暴露文本 streaming，因为上游 Rust crate 没有暴露工具/思考流请求字段。
 
+## Usage 统计
+
+`ChatUsage` 保留原有的 `prompt_tokens`、`completion_tokens`、`total_tokens`，同时新增 provider-neutral 的 `input_tokens`、`output_tokens`、`cache_read_input_tokens`、`cache_creation_input_tokens`。所有字段均为可选值：provider 未上报 cache 字段时为 `None`，明确上报 0 时为 `Some(0)`。
+
+`raw_usage` 保留 provider 原始 usage 对象，供诊断和未来兼容使用。OpenAI-compatible 的 cache read 会从 prompt/input token details 或兼容的顶层字段归一化；Anthropic 的 cache read/cache creation 直接映射；Bedrock 的 `cache_write_input_tokens` 映射到 `cache_creation_input_tokens`。string、小数、负数或溢出的 token 值不会被强转为归一化计数，但仍保留在 `raw_usage` 中。
+
 ## 工具调用
 
 ```rust
@@ -193,7 +199,7 @@ OpenAI-compatible provider 经常会暴露额外的请求 / 响应字段，用�
 - `ToolCall.extra_content` 会保留供应商工具调用元数据，例如 Google thought signature。
 - `ChatResponse.reasoning_content` 和流式 `ChatStreamDelta.reasoning_content` 会暴露支持的 reasoning 输出。
 
-当这些扩展字段存在时，OpenAI-compatible adapter 会在内部使用 `async-openai` BYOT，并把原始 JSON 响应重新归一化成公开的 `vv-llm` 类型。
+OpenAI-compatible adapter 继续使用类型化 request 构建，通过 `async-openai` BYOT 解码响应以保留 provider usage 扩展，并把原始 JSON 响应归一化成公开的 `vv-llm` 类型。
 
 ## 多模态输入
 

@@ -51,13 +51,15 @@ impl OpenAiCompatibleChatClient {
     }
 
     pub fn normalize_stream_chunk_json(
-        chunk: serde_json::Value,
+        mut chunk: serde_json::Value,
     ) -> Result<ChatStreamDelta, VvLlmError> {
         let extra_content = stream_tool_call_extra_content(&chunk);
         let reasoning_content = stream_reasoning_content(&chunk);
+        let usage = take_openai_usage(&mut chunk).and_then(normalize_openai_usage);
         let chunk: async_openai::types::chat::CreateChatCompletionStreamResponse =
             serde_json::from_value(chunk)?;
         let mut delta = normalize_openai_stream_chunk(chunk);
+        delta.usage = usage;
         delta.reasoning_content.push_str(&reasoning_content);
         apply_stream_tool_call_extra_content(&mut delta, extra_content);
         Ok(delta)
@@ -132,56 +134,48 @@ impl ChatClient for OpenAiCompatibleChatClient {
 
     async fn create_completion(&self, request: ChatRequest) -> Result<ChatResponse, VvLlmError> {
         let client = self.client();
-        if request_needs_byot(&request) {
-            let request_json = self.to_openai_json(&request)?;
-            let response_json: Value = client
-                .chat()
-                .create_byot(&request_json)
-                .await
-                .map_err(|error| VvLlmError::Provider(error.to_string()))?;
-            return normalize_openai_completion_json(response_json);
-        }
-        let response = client
-            .chat()
-            .create(self.to_openai_request(&request)?)
-            .await
-            .map_err(|error| VvLlmError::Provider(error.to_string()))?;
-        Ok(normalize_openai_completion_response(response))
+        let response_json: Result<Value, async_openai::error::OpenAIError> =
+            if request_needs_byot(&request) {
+                let request_json = self.to_openai_json(&request)?;
+                client.chat().create_byot(&request_json).await
+            } else {
+                let openai_request = self.to_openai_request(&request)?;
+                client.chat().create_byot(&openai_request).await
+            };
+        let response_json =
+            response_json.map_err(|error| VvLlmError::Provider(error.to_string()))?;
+        normalize_openai_completion_json(response_json)
     }
 
     async fn create_stream(&self, request: ChatRequest) -> Result<ChatStream, VvLlmError> {
         let client = self.client();
-        if request_needs_byot(&request) {
-            let request_json = self.to_openai_json(&request)?;
-            let stream: std::pin::Pin<
+        let stream: Result<
+            std::pin::Pin<
                 Box<
                     dyn futures_core::Stream<Item = Result<Value, async_openai::error::OpenAIError>>
                         + Send,
                 >,
-            > = client
-                .chat()
-                .create_stream_byot(&request_json)
-                .await
-                .map_err(|error| VvLlmError::Provider(error.to_string()))?;
-            let mut normalizer = TaggedReasoningNormalizer::for_model(&request.model);
-            return Ok(Box::pin(stream.map(move |chunk| {
-                chunk
-                    .map_err(|error| VvLlmError::Provider(error.to_string()))
-                    .and_then(OpenAiCompatibleChatClient::normalize_stream_chunk_json)
-                    .map(|delta| normalizer.normalize(delta))
-            })));
-        }
-        let stream = client
-            .chat()
-            .create_stream(self.to_openai_request(&request)?)
-            .await
-            .map_err(|error| VvLlmError::Provider(error.to_string()))?;
+            >,
+            async_openai::error::OpenAIError,
+        > = if request_needs_byot(&request) {
+            let request_json = self.to_openai_json(&request)?;
+            client.chat().create_stream_byot(&request_json).await
+        } else {
+            let openai_request = self.to_openai_request(&request)?;
+            client.chat().create_stream_byot(&openai_request).await
+        };
+        let stream: std::pin::Pin<
+            Box<
+                dyn futures_core::Stream<Item = Result<Value, async_openai::error::OpenAIError>>
+                    + Send,
+            >,
+        > = stream.map_err(|error| VvLlmError::Provider(error.to_string()))?;
         let mut normalizer = TaggedReasoningNormalizer::for_model(&request.model);
         Ok(Box::pin(stream.map(move |chunk| {
             chunk
-                .map(normalize_openai_stream_chunk)
-                .map(|delta| normalizer.normalize(delta))
                 .map_err(|error| VvLlmError::Provider(error.to_string()))
+                .and_then(OpenAiCompatibleChatClient::normalize_stream_chunk_json)
+                .map(|delta| normalizer.normalize(delta))
         })))
     }
 }
@@ -339,13 +333,15 @@ fn from_openai_tool_call(tool_call: ChatCompletionMessageToolCalls) -> Option<To
     }
 }
 
-fn normalize_openai_completion_json(response: Value) -> Result<ChatResponse, VvLlmError> {
+fn normalize_openai_completion_json(mut response: Value) -> Result<ChatResponse, VvLlmError> {
     let reasoning_content = completion_reasoning_content(&response);
     let extra_content = completion_tool_call_extra_content(&response);
+    let usage = take_openai_usage(&mut response).and_then(normalize_openai_usage);
     let response: async_openai::types::chat::CreateChatCompletionResponse =
         serde_json::from_value(response)?;
     let mut normalized = normalize_openai_completion_response(response);
     normalized.reasoning_content = reasoning_content;
+    normalized.usage = usage;
     apply_tool_call_extra_content(&mut normalized.tool_calls, extra_content);
     Ok(normalized)
 }
@@ -363,11 +359,7 @@ fn normalize_openai_completion_response(
         .into_iter()
         .filter_map(from_openai_tool_call)
         .collect();
-    let usage = response.usage.map(|usage| ChatUsage {
-        prompt_tokens: Some(usage.prompt_tokens),
-        completion_tokens: Some(usage.completion_tokens),
-        total_tokens: Some(usage.total_tokens),
-    });
+    let usage = response.usage.map(normalize_typed_openai_usage);
 
     ChatResponse {
         id: response.id,
@@ -377,6 +369,95 @@ fn normalize_openai_completion_response(
         reasoning_content: None,
         usage,
     }
+}
+
+fn take_openai_usage(response: &mut Value) -> Option<Value> {
+    response
+        .as_object_mut()
+        .and_then(|response| response.remove("usage"))
+        .filter(|usage| !usage.is_null())
+}
+
+fn normalize_openai_usage(raw_usage: Value) -> Option<ChatUsage> {
+    if raw_usage.is_null() {
+        return None;
+    }
+
+    let prompt_tokens = value_u32(raw_usage.get("prompt_tokens"))
+        .or_else(|| value_u32(raw_usage.get("input_tokens")));
+    let completion_tokens = value_u32(raw_usage.get("completion_tokens"))
+        .or_else(|| value_u32(raw_usage.get("output_tokens")));
+    let input_tokens = value_u32(raw_usage.get("input_tokens")).or(prompt_tokens);
+    let output_tokens = value_u32(raw_usage.get("output_tokens")).or(completion_tokens);
+    let cache_read_input_tokens = first_nested_u32(
+        &raw_usage,
+        &[
+            &["prompt_tokens_details", "cached_tokens"],
+            &["input_tokens_details", "cached_tokens"],
+            &["cache_read_input_tokens"],
+            &["cache_read_tokens"],
+        ],
+    );
+    let cache_creation_input_tokens = first_nested_u32(
+        &raw_usage,
+        &[
+            &["input_tokens_details", "cache_creation_tokens"],
+            &["prompt_tokens_details", "cache_creation_tokens"],
+            &["cache_creation_input_tokens"],
+            &["cache_write_input_tokens"],
+            &["cache_creation_tokens"],
+            &["cache_write_tokens"],
+        ],
+    );
+
+    Some(ChatUsage {
+        prompt_tokens,
+        completion_tokens,
+        total_tokens: value_u32(raw_usage.get("total_tokens")),
+        input_tokens,
+        output_tokens,
+        cache_read_input_tokens,
+        cache_creation_input_tokens,
+        raw_usage: Some(raw_usage),
+    })
+}
+
+fn normalize_typed_openai_usage(usage: async_openai::types::chat::CompletionUsage) -> ChatUsage {
+    let prompt_tokens = usage.prompt_tokens;
+    let completion_tokens = usage.completion_tokens;
+    let total_tokens = usage.total_tokens;
+    let cache_read_input_tokens = usage
+        .prompt_tokens_details
+        .as_ref()
+        .and_then(|details| details.cached_tokens);
+    let raw_usage = serde_json::to_value(&usage).ok();
+
+    ChatUsage {
+        prompt_tokens: Some(prompt_tokens),
+        completion_tokens: Some(completion_tokens),
+        total_tokens: Some(total_tokens),
+        input_tokens: Some(prompt_tokens),
+        output_tokens: Some(completion_tokens),
+        cache_read_input_tokens,
+        cache_creation_input_tokens: None,
+        raw_usage,
+    }
+}
+
+fn first_nested_u32(value: &Value, paths: &[&[&str]]) -> Option<u32> {
+    paths.iter().find_map(|path| {
+        let mut current = value;
+        for key in *path {
+            current = current.get(*key)?;
+        }
+        value_u32(Some(current))
+    })
+}
+
+fn value_u32(value: Option<&Value>) -> Option<u32> {
+    value
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
 }
 
 fn completion_reasoning_content(response: &Value) -> Option<String> {
@@ -460,11 +541,7 @@ fn normalize_openai_stream_chunk(
 ) -> ChatStreamDelta {
     let model = chunk.model.clone();
     let mut delta = ChatStreamDelta {
-        usage: chunk.usage.map(|usage| ChatUsage {
-            prompt_tokens: Some(usage.prompt_tokens),
-            completion_tokens: Some(usage.completion_tokens),
-            total_tokens: Some(usage.total_tokens),
-        }),
+        usage: chunk.usage.map(normalize_typed_openai_usage),
         ..Default::default()
     };
 

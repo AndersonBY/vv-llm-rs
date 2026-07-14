@@ -50,6 +50,7 @@ Public request and response structs should stay provider-neutral. Provider-speci
 - `ChatRequest` carries model, messages, options, tools, and tool choice.
 - `ChatResponse` carries normalized content, tool calls, and usage.
 - `ChatStreamDelta` carries streaming text, reasoning text, tool-call deltas, usage, optional raw content, and a `done` marker.
+- `ChatUsage` preserves the legacy prompt/completion/total counters plus optional input/output, cache read/cache creation, and raw provider usage. Missing optional counters remain distinct from explicitly reported zeroes.
 - `EmbeddingResponse` and `RerankResponse` keep retrieval clients independent from provider payloads.
 - `VvLlmError` separates configuration, model, endpoint, serialization, HTTP, and provider failures.
 
@@ -126,6 +127,7 @@ Normalization expectations:
 - Reasoning deltas append through `ChatStreamDelta.reasoning_content`.
 - Tool-call deltas use `ChatStreamDelta.tool_calls`.
 - Usage events use `ChatStreamDelta.usage`.
+- Providers that split usage across stream events should emit a cumulative usage snapshot so later output-only events do not erase earlier input or cache observations.
 - Provider metadata that callers may need for debugging can go in `raw_content`.
 - The terminal provider event should emit `done: true` when the provider gives a clear completion signal.
 

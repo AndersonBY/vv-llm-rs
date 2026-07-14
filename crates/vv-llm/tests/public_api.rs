@@ -1,4 +1,6 @@
-use vv_llm::{BackendType, ChatRequest, ChatStreamDelta, Message, MessageRole, ToolCall};
+use vv_llm::{
+    BackendType, ChatRequest, ChatStreamDelta, ChatUsage, Message, MessageRole, ToolCall,
+};
 
 #[test]
 fn public_api_exposes_backend_and_message_types() {
@@ -34,4 +36,31 @@ fn public_api_exposes_normalized_stream_delta_type() {
     assert_eq!(delta.tool_calls[0].name, "lookup");
     assert_eq!(delta.raw_content.unwrap()["provider"], "unit");
     assert!(!delta.done);
+}
+
+#[test]
+fn chat_usage_keeps_legacy_json_compatible_and_optional_cache_values_distinct() {
+    let legacy_json = serde_json::json!({
+        "prompt_tokens": 11,
+        "completion_tokens": 7,
+        "total_tokens": 18
+    });
+    let legacy: ChatUsage = serde_json::from_value(legacy_json.clone()).unwrap();
+
+    assert_eq!(legacy.input_tokens, None);
+    assert_eq!(legacy.output_tokens, None);
+    assert_eq!(legacy.cache_read_input_tokens, None);
+    assert_eq!(legacy.cache_creation_input_tokens, None);
+    assert_eq!(legacy.raw_usage, None);
+    assert_eq!(serde_json::to_value(legacy).unwrap(), legacy_json);
+
+    let explicit_zero = ChatUsage {
+        cache_read_input_tokens: Some(0),
+        cache_creation_input_tokens: Some(0),
+        ..Default::default()
+    };
+    let explicit_zero = serde_json::to_value(explicit_zero).unwrap();
+
+    assert_eq!(explicit_zero["cache_read_input_tokens"], 0);
+    assert_eq!(explicit_zero["cache_creation_input_tokens"], 0);
 }
