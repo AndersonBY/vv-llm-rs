@@ -1,17 +1,17 @@
 {
   "default_models": {
-    "moonshot": "kimi-k2.5",
-    "deepseek": "deepseek-chat",
+    "moonshot": "kimi-k2.6",
+    "deepseek": "deepseek-v4-pro",
     "baichuan": "Baichuan4",
     "groq": "llama3-70b-8192",
     "qwen": "qwen3.5-397b-a17b",
     "yi": "yi-lightning",
-    "zhipuai": "glm-5",
+    "zhipuai": "glm-5.2",
     "mistral": "mistral-small",
-    "openai": "gpt-5.2",
-    "anthropic": "claude-opus-4-6",
-    "minimax": "MiniMax-M2.7",
-    "gemini": "gemini-3-flash",
+    "openai": "gpt-5.5",
+    "anthropic": "claude-opus-4-8",
+    "minimax": "MiniMax-M3",
+    "gemini": "gemini-3.5-flash",
     "ernie": "ernie-4.5-8k-preview",
     "stepfun": "step-3.5-flash",
     "xai": "grok-4.20-0309-reasoning",
@@ -64,6 +64,13 @@
         },
         "kimi-k2.6": {
           "id": "kimi-k2.6",
+          "context_length": 256000,
+          "function_call_available": true,
+          "response_format_available": true,
+          "native_multimodal": true
+        },
+        "kimi-k2.7-code": {
+          "id": "kimi-k2.7-code",
           "context_length": 256000,
           "function_call_available": true,
           "response_format_available": true,
@@ -783,6 +790,14 @@
           "response_format_available": true,
           "max_output_tokens": 128000,
           "native_multimodal": false
+        },
+        "glm-5.2": {
+          "id": "glm-5.2",
+          "context_length": 1000000,
+          "function_call_available": true,
+          "response_format_available": true,
+          "max_output_tokens": 128000,
+          "native_multimodal": false
         }
       }
     },
@@ -1095,6 +1110,30 @@
           "function_call_available": true,
           "response_format_available": true,
           "native_multimodal": true
+        },
+        "gpt-5.6-sol": {
+          "id": "gpt-5.6-sol",
+          "context_length": 1050000,
+          "max_output_tokens": 128000,
+          "function_call_available": true,
+          "response_format_available": true,
+          "native_multimodal": true
+        },
+        "gpt-5.6-terra": {
+          "id": "gpt-5.6-terra",
+          "context_length": 1050000,
+          "max_output_tokens": 128000,
+          "function_call_available": true,
+          "response_format_available": true,
+          "native_multimodal": true
+        },
+        "gpt-5.6-luna": {
+          "id": "gpt-5.6-luna",
+          "context_length": 1050000,
+          "max_output_tokens": 128000,
+          "function_call_available": true,
+          "response_format_available": true,
+          "native_multimodal": true
         }
       }
     },
@@ -1174,7 +1213,7 @@
         },
         "claude-opus-4-6": {
           "id": "claude-opus-4-6",
-          "context_length": 200000,
+          "context_length": 1000000,
           "max_output_tokens": 128000,
           "function_call_available": true,
           "response_format_available": false,
@@ -1182,7 +1221,7 @@
         },
         "claude-sonnet-4-6": {
           "id": "claude-sonnet-4-6",
-          "context_length": 200000,
+          "context_length": 1000000,
           "max_output_tokens": 64000,
           "function_call_available": true,
           "response_format_available": false,
@@ -1190,7 +1229,7 @@
         },
         "claude-opus-4-7": {
           "id": "claude-opus-4-7",
-          "context_length": 200000,
+          "context_length": 1000000,
           "max_output_tokens": 128000,
           "function_call_available": true,
           "response_format_available": false,
@@ -1198,7 +1237,23 @@
         },
         "claude-opus-4-8": {
           "id": "claude-opus-4-8",
-          "context_length": 200000,
+          "context_length": 1000000,
+          "max_output_tokens": 128000,
+          "function_call_available": true,
+          "response_format_available": false,
+          "native_multimodal": true
+        },
+        "claude-fable-5": {
+          "id": "claude-fable-5",
+          "context_length": 1000000,
+          "max_output_tokens": 128000,
+          "function_call_available": true,
+          "response_format_available": false,
+          "native_multimodal": true
+        },
+        "claude-sonnet-5": {
+          "id": "claude-sonnet-5",
+          "context_length": 1000000,
           "max_output_tokens": 128000,
           "function_call_available": true,
           "response_format_available": false,
@@ -1444,6 +1499,30 @@
           "id": "ernie-4.5-8k-preview",
           "context_length": 5120,
           "max_output_tokens": 2048,
+          "function_call_available": false,
+          "response_format_available": true,
+          "native_multimodal": false
+        },
+        "ernie-4.5-turbo-128k": {
+          "id": "ernie-4.5-turbo-128k",
+          "context_length": 128000,
+          "max_output_tokens": 65536,
+          "function_call_available": false,
+          "response_format_available": true,
+          "native_multimodal": false
+        },
+        "ernie-5.0": {
+          "id": "ernie-5.0",
+          "context_length": 128000,
+          "max_output_tokens": 65536,
+          "function_call_available": false,
+          "response_format_available": true,
+          "native_multimodal": true
+        },
+        "ernie-5.1": {
+          "id": "ernie-5.1",
+          "context_length": 128000,
+          "max_output_tokens": 65536,
           "function_call_available": false,
           "response_format_available": true,
           "native_multimodal": false

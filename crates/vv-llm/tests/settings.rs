@@ -332,33 +332,122 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
         .get("qwen")
         .and_then(|backend| backend.models.get("qwen3.7-max"))
         .expect("qwen3.7-max should come from the Python default catalog");
+    let moonshot = settings
+        .backends
+        .get("moonshot")
+        .and_then(|backend| backend.models.get("kimi-k2.7-code"))
+        .expect("kimi-k2.7-code should come from the Python default catalog");
+    let zhipuai = settings
+        .backends
+        .get("zhipuai")
+        .and_then(|backend| backend.models.get("glm-5.2"))
+        .expect("glm-5.2 should come from the Python default catalog");
     let anthropic = settings
         .backends
         .get("anthropic")
         .and_then(|backend| backend.models.get("claude-opus-4-8"))
         .expect("claude-opus-4-8 should come from the Python default catalog");
+    let anthropic_fable = settings
+        .backends
+        .get("anthropic")
+        .and_then(|backend| backend.models.get("claude-fable-5"))
+        .expect("claude-fable-5 should come from the Python default catalog");
+    let anthropic_opus_46 = settings
+        .backends
+        .get("anthropic")
+        .and_then(|backend| backend.models.get("claude-opus-4-6"))
+        .expect("claude-opus-4-6 should come from the Python default catalog");
+    let anthropic_sonnet_5 = settings
+        .backends
+        .get("anthropic")
+        .and_then(|backend| backend.models.get("claude-sonnet-5"))
+        .expect("claude-sonnet-5 should come from the Python default catalog");
     let minimax = settings
         .backends
         .get("minimax")
         .and_then(|backend| backend.models.get("MiniMax-M3"))
         .expect("MiniMax-M3 should come from the Python default catalog");
+    let ernie_51 = settings
+        .backends
+        .get("ernie")
+        .and_then(|backend| backend.models.get("ernie-5.1"))
+        .expect("ernie-5.1 should come from the Python default catalog");
+    let openai_gpt_56_sol = settings
+        .backends
+        .get("openai")
+        .and_then(|backend| backend.models.get("gpt-5.6-sol"))
+        .expect("gpt-5.6-sol should come from the Python default catalog");
+    let openai_gpt_56_terra = settings
+        .backends
+        .get("openai")
+        .and_then(|backend| backend.models.get("gpt-5.6-terra"))
+        .expect("gpt-5.6-terra should come from the Python default catalog");
+    let openai_gpt_56_luna = settings
+        .backends
+        .get("openai")
+        .and_then(|backend| backend.models.get("gpt-5.6-luna"))
+        .expect("gpt-5.6-luna should come from the Python default catalog");
 
+    assert_eq!(default_chat_model(BackendType::Moonshot), Some("kimi-k2.6"));
+    assert_eq!(
+        default_chat_model(BackendType::DeepSeek),
+        Some("deepseek-v4-pro")
+    );
     assert_eq!(
         default_chat_model(BackendType::Qwen),
         Some("qwen3.5-397b-a17b")
     );
+    assert_eq!(default_chat_model(BackendType::ZhiPuAI), Some("glm-5.2"));
+    assert_eq!(default_chat_model(BackendType::OpenAI), Some("gpt-5.5"));
+    assert_eq!(
+        default_chat_model(BackendType::Anthropic),
+        Some("claude-opus-4-8")
+    );
+    assert_eq!(default_chat_model(BackendType::MiniMax), Some("MiniMax-M3"));
+    assert_eq!(
+        default_chat_model(BackendType::Gemini),
+        Some("gemini-3.5-flash")
+    );
+    assert_eq!(moonshot.context_length, Some(256_000));
+    assert_eq!(moonshot.function_call_available, Some(true));
+    assert_eq!(moonshot.response_format_available, Some(true));
+    assert_eq!(moonshot.native_multimodal, Some(true));
     assert_eq!(qwen.context_length, Some(1_000_000));
     assert_eq!(qwen.max_output_tokens, Some(65_536));
     assert_eq!(qwen.function_call_available, Some(true));
     assert_eq!(qwen.response_format_available, Some(true));
     assert_eq!(qwen.native_multimodal, Some(false));
+    assert_eq!(zhipuai.context_length, Some(1_000_000));
+    assert_eq!(zhipuai.max_output_tokens, Some(128_000));
+    assert_eq!(zhipuai.function_call_available, Some(true));
+    assert_eq!(zhipuai.response_format_available, Some(true));
+    assert_eq!(zhipuai.native_multimodal, Some(false));
+    assert_eq!(anthropic_opus_46.context_length, Some(1_000_000));
+    assert_eq!(anthropic.context_length, Some(1_000_000));
     assert_eq!(anthropic.max_output_tokens, Some(128_000));
     assert_eq!(anthropic.native_multimodal, Some(true));
+    assert_eq!(anthropic_fable.context_length, Some(1_000_000));
+    assert_eq!(anthropic_fable.max_output_tokens, Some(128_000));
+    assert_eq!(anthropic_fable.native_multimodal, Some(true));
+    assert_eq!(anthropic_sonnet_5.context_length, Some(1_000_000));
+    assert_eq!(anthropic_sonnet_5.max_output_tokens, Some(128_000));
+    assert_eq!(anthropic_sonnet_5.native_multimodal, Some(true));
     assert_eq!(minimax.context_length, Some(1_000_000));
     assert_eq!(minimax.max_output_tokens, Some(10_240));
     assert_eq!(minimax.function_call_available, Some(true));
     assert_eq!(minimax.response_format_available, Some(true));
     assert_eq!(minimax.native_multimodal, Some(true));
+    assert_eq!(ernie_51.context_length, Some(128_000));
+    assert_eq!(ernie_51.max_output_tokens, Some(65_536));
+    assert_eq!(ernie_51.response_format_available, Some(true));
+    assert_eq!(ernie_51.native_multimodal, Some(false));
+    for model in [openai_gpt_56_sol, openai_gpt_56_terra, openai_gpt_56_luna] {
+        assert_eq!(model.context_length, Some(1_050_000));
+        assert_eq!(model.max_output_tokens, Some(128_000));
+        assert_eq!(model.function_call_available, Some(true));
+        assert_eq!(model.response_format_available, Some(true));
+        assert_eq!(model.native_multimodal, Some(true));
+    }
 }
 
 #[test]
