@@ -17,6 +17,8 @@ Implementation notes:
 - Supports `tool_choice` values accepted by the adapter.
 - Normalizes completion content, tool calls, and usage into `ChatResponse`.
 - Normalizes stream content, tool-call chunks, usage chunks, and done state into `ChatStreamDelta`.
+- Captures the raw `usage` object before typed response deserialization for both completion and stream responses without changing the request payload.
+- Maps `prompt_tokens_details.cached_tokens`, `input_tokens_details.cached_tokens`, and compatible top-level cache fields to `ChatUsage.cache_read_input_tokens`; cache creation/write variants map to `ChatUsage.cache_creation_input_tokens`.
 - Extracts tagged reasoning from streamed content for `<think>...</think>` and Gemini `<thought>...</thought>` style tags.
 
 Keep OpenAI-compatible behavior generic unless a provider requires a settings-level transport distinction.
@@ -32,7 +34,8 @@ Implementation notes:
 - Uses the `anthropic` Rust SDK.
 - Extracts system messages into the Anthropic system prompt field.
 - Maps text and image data URL content into Anthropic message content.
-- Maps non-streaming text responses and usage into `ChatResponse`.
+- Maps non-streaming text responses, input/output usage, cache reads, cache creation, and raw usage into `ChatResponse`.
+- Accumulates direct JSON stream usage across `message_start` and `message_delta`, retaining initial input/cache values with the final output count.
 - Direct streaming currently exposes normalized text deltas. The upstream crate does not expose all tool/thinking stream request fields, so full tool and reasoning streaming is handled through the Bedrock path where available.
 
 Do not bypass the SDK with raw HTTP unless a required feature cannot be represented with the SDK and the gap is documented in tests and docs.
@@ -49,7 +52,7 @@ Implementation notes:
 - Requires `region` and AWS credentials in endpoint `credentials`.
 - Maps text, data URL images, assistant tool-use turns, and tool-result turns.
 - Maps `ChatTool` to Bedrock tool configuration.
-- Normalizes text, tool calls, reasoning deltas, usage, and done events from Bedrock streams.
+- Normalizes text, tool calls, reasoning deltas, usage, and done events from Bedrock streams. Bedrock `cache_write_input_tokens` is exposed as `ChatUsage.cache_creation_input_tokens` while the provider key remains in `raw_usage`.
 - Converts Bedrock `Document` values to JSON strings for normalized tool arguments.
 
 For Bedrock image support, use data URLs in `MessageContent::ImageUrl`. The adapter decodes the data URL and maps the media type to the Bedrock image format.

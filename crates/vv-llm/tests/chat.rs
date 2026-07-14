@@ -748,6 +748,120 @@ fn openai_stream_chunk_json_normalizes_content_tools_and_usage() {
 }
 
 #[test]
+fn openai_completion_usage_distinguishes_missing_zero_positive_and_invalid_cache_values() {
+    for (case, raw_usage, expected_read, expected_creation) in openai_cache_usage_cases() {
+        let response = serde_json::json!({
+            "id": format!("chatcmpl-{case}"),
+            "object": "chat.completion",
+            "created": 0,
+            "model": "provider-model",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop"
+            }],
+            "usage": raw_usage.clone()
+        });
+
+        let normalized = OpenAiCompatibleChatClient::normalize_completion_json(response).unwrap();
+        let usage = normalized.usage.expect(case);
+
+        assert_eq!(usage.prompt_tokens, Some(11), "{case}");
+        assert_eq!(usage.completion_tokens, Some(7), "{case}");
+        assert_eq!(usage.input_tokens, Some(11), "{case}");
+        assert_eq!(usage.output_tokens, Some(7), "{case}");
+        assert_eq!(usage.cache_read_input_tokens, expected_read, "{case}");
+        assert_eq!(
+            usage.cache_creation_input_tokens, expected_creation,
+            "{case}"
+        );
+        assert_eq!(usage.raw_usage, Some(raw_usage), "{case}");
+    }
+}
+
+#[test]
+fn openai_stream_usage_distinguishes_missing_zero_positive_and_invalid_cache_values() {
+    for (case, raw_usage, expected_read, expected_creation) in openai_cache_usage_cases() {
+        let chunk = serde_json::json!({
+            "id": format!("chatcmpl-{case}"),
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "provider-model",
+            "choices": [],
+            "usage": raw_usage.clone()
+        });
+
+        let delta = OpenAiCompatibleChatClient::normalize_stream_chunk_json(chunk).unwrap();
+        let usage = delta.usage.expect(case);
+
+        assert!(!delta.done, "{case}");
+        assert_eq!(usage.prompt_tokens, Some(11), "{case}");
+        assert_eq!(usage.completion_tokens, Some(7), "{case}");
+        assert_eq!(usage.input_tokens, Some(11), "{case}");
+        assert_eq!(usage.output_tokens, Some(7), "{case}");
+        assert_eq!(usage.cache_read_input_tokens, expected_read, "{case}");
+        assert_eq!(
+            usage.cache_creation_input_tokens, expected_creation,
+            "{case}"
+        );
+        assert_eq!(usage.raw_usage, Some(raw_usage), "{case}");
+    }
+}
+
+fn openai_cache_usage_cases() -> Vec<(&'static str, serde_json::Value, Option<u32>, Option<u32>)> {
+    vec![
+        (
+            "missing",
+            serde_json::json!({
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18
+            }),
+            None,
+            None,
+        ),
+        (
+            "explicit-zero",
+            serde_json::json!({
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+                "prompt_tokens_details": {"cached_tokens": 0},
+                "input_tokens_details": {"cache_creation_tokens": 0}
+            }),
+            Some(0),
+            Some(0),
+        ),
+        (
+            "positive",
+            serde_json::json!({
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+                "input_tokens_details": {
+                    "cached_tokens": 6,
+                    "cache_creation_tokens": 4
+                }
+            }),
+            Some(6),
+            Some(4),
+        ),
+        (
+            "invalid",
+            serde_json::json!({
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+                "prompt_tokens_details": {"cached_tokens": "6"},
+                "input_tokens_details": {"cache_creation_tokens": 4.5}
+            }),
+            None,
+            None,
+        ),
+    ]
+}
+
+#[test]
 fn openai_stream_chunk_json_preserves_tool_call_index() {
     let chunk = serde_json::json!({
         "id": "chatcmpl-test",
@@ -929,6 +1043,137 @@ async fn openai_compatible_completion_uses_json_path_for_empty_reasoning_content
 }
 
 #[tokio::test]
+async fn openai_compatible_completion_preserves_usage_on_typed_request_path() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = read_http_request(&mut socket).await;
+        let body = request.split("\r\n\r\n").nth(1).expect("request body");
+        let json: serde_json::Value = serde_json::from_str(body).unwrap();
+
+        assert!(request.starts_with("POST /chat/completions "));
+        assert_eq!(json["model"], "provider-model");
+        assert_eq!(json["messages"][0]["content"], "hello");
+
+        let response = serde_json::json!({
+            "id": "chatcmpl-usage",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "provider-model",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+                "cache_read_input_tokens": 6,
+                "cache_creation_input_tokens": 4
+            }
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+            response.len(),
+            response
+        );
+        use tokio::io::AsyncWriteExt;
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let client = OpenAiCompatibleChatClient::new("provider-model", api_base, "sk-test");
+    let response = client
+        .create_completion(ChatRequest::new(
+            "provider-model",
+            vec![Message::text(MessageRole::User, "hello")],
+        ))
+        .await
+        .unwrap();
+    server.await.unwrap();
+    let usage = response.usage.unwrap();
+
+    assert_eq!(usage.cache_read_input_tokens, Some(6));
+    assert_eq!(usage.cache_creation_input_tokens, Some(4));
+    assert_eq!(
+        usage.raw_usage.unwrap()["cache_read_input_tokens"],
+        serde_json::json!(6)
+    );
+}
+
+#[tokio::test]
+async fn openai_compatible_stream_preserves_usage_on_typed_request_path() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = read_http_request(&mut socket).await;
+        let body = request.split("\r\n\r\n").nth(1).expect("request body");
+        let json: serde_json::Value = serde_json::from_str(body).unwrap();
+
+        assert!(request.starts_with("POST /chat/completions "));
+        assert_eq!(json["model"], "provider-model");
+        assert_eq!(json["stream"], true);
+
+        let finish_chunk = serde_json::json!({
+            "id": "chatcmpl-stream-finish",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "provider-model",
+            "choices": [{
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop"
+            }],
+            "usage": null
+        });
+        let usage_chunk = serde_json::json!({
+            "id": "chatcmpl-stream-usage",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "provider-model",
+            "choices": [],
+            "usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+                "prompt_tokens_details": {"cached_tokens": 6}
+            }
+        });
+        let body = format!("data: {finish_chunk}\n\ndata: {usage_chunk}\n\ndata: [DONE]\n\n");
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        use tokio::io::AsyncWriteExt;
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let client = OpenAiCompatibleChatClient::new("provider-model", api_base, "sk-test");
+    let mut request = ChatRequest::new(
+        "provider-model",
+        vec![Message::text(MessageRole::User, "hello")],
+    );
+    request.options.stream = Some(true);
+    let mut stream = client.create_stream(request).await.unwrap();
+    let finish_delta = stream.next().await.unwrap().unwrap();
+    let usage_delta = stream.next().await.unwrap().unwrap();
+    server.await.unwrap();
+    let usage = usage_delta.usage.unwrap();
+
+    assert!(finish_delta.done);
+    assert!(!usage_delta.done);
+    assert_eq!(usage.cache_read_input_tokens, Some(6));
+    assert_eq!(
+        usage.raw_usage.unwrap()["prompt_tokens_details"]["cached_tokens"],
+        serde_json::json!(6)
+    );
+}
+
+#[tokio::test]
 async fn anthropic_direct_completion_uses_json_path_for_cache_control_and_tools() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let api_base = format!("http://{}", listener.local_addr().unwrap());
@@ -963,7 +1208,12 @@ async fn anthropic_direct_completion_uses_json_path_for_cache_control_and_tools(
             ],
             "stop_reason": "end_turn",
             "stop_sequence": null,
-            "usage": {"input_tokens": 5, "output_tokens": 7}
+            "usage": {
+                "input_tokens": 5,
+                "output_tokens": 7,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 3
+            }
         })
         .to_string();
         let response = format!(
@@ -1016,6 +1266,10 @@ async fn anthropic_direct_completion_uses_json_path_for_cache_control_and_tools(
     assert_eq!(usage.prompt_tokens, Some(5));
     assert_eq!(usage.completion_tokens, Some(7));
     assert_eq!(usage.total_tokens, Some(12));
+    assert_eq!(usage.input_tokens, Some(5));
+    assert_eq!(usage.output_tokens, Some(7));
+    assert_eq!(usage.cache_read_input_tokens, Some(0));
+    assert_eq!(usage.cache_creation_input_tokens, Some(3));
 }
 
 #[tokio::test]

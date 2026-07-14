@@ -183,6 +183,13 @@ impl AnthropicChatClient {
             (bytes, state),
             |(mut bytes, mut state)| async move {
                 loop {
+                    if let Some(event) = state.next_event() {
+                        match normalize_anthropic_sse_event(&event, &mut state.usage) {
+                            Ok(Some(delta)) => return Some((Ok(delta), (bytes, state))),
+                            Ok(None) => continue,
+                            Err(error) => return Some((Err(error), (bytes, state))),
+                        }
+                    }
                     match bytes.next().await {
                         Some(Ok(chunk)) => {
                             let text = match std::str::from_utf8(&chunk) {
@@ -195,13 +202,6 @@ impl AnthropicChatClient {
                                 }
                             };
                             state.buffer.push_str(text);
-                            if let Some(event) = state.next_event() {
-                                match normalize_anthropic_sse_event(&event) {
-                                    Ok(Some(delta)) => return Some((Ok(delta), (bytes, state))),
-                                    Ok(None) => continue,
-                                    Err(error) => return Some((Err(error), (bytes, state))),
-                                }
-                            }
                         }
                         Some(Err(error)) => {
                             return Some((
@@ -244,12 +244,7 @@ impl ChatClient for AnthropicChatClient {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        let usage = response.usage;
-        let usage = Some(ChatUsage {
-            prompt_tokens: Some(usage.input_tokens as u32),
-            completion_tokens: Some(usage.output_tokens as u32),
-            total_tokens: Some((usage.input_tokens + usage.output_tokens) as u32),
-        });
+        let usage = normalize_anthropic_usage(serde_json::to_value(response.usage).ok());
 
         Ok(ChatResponse {
             id: response.id,
@@ -404,11 +399,7 @@ impl ChatClient for AnthropicBedrockChatClient {
             }
         }
 
-        let usage = response.usage.map(|usage| ChatUsage {
-            prompt_tokens: non_negative_u32(usage.input_tokens),
-            completion_tokens: non_negative_u32(usage.output_tokens),
-            total_tokens: non_negative_u32(usage.total_tokens),
-        });
+        let usage = response.usage.map(normalize_bedrock_usage);
 
         Ok(ChatResponse {
             id: String::new(),
@@ -880,6 +871,186 @@ mod tests {
         assert!((inference.top_p().unwrap() - 0.8).abs() < 0.000_001);
         assert_eq!(inference.stop_sequences(), ["END", "DONE"]);
     }
+
+    #[test]
+    fn anthropic_usage_distinguishes_missing_zero_positive_and_invalid_cache_values() {
+        let cases = [
+            (
+                "missing",
+                json!({"input_tokens": 11, "output_tokens": 7}),
+                None,
+                None,
+            ),
+            (
+                "explicit-zero",
+                json!({
+                    "input_tokens": 11,
+                    "output_tokens": 7,
+                    "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0
+                }),
+                Some(0),
+                Some(0),
+            ),
+            (
+                "positive",
+                json!({
+                    "input_tokens": 11,
+                    "output_tokens": 7,
+                    "cache_read_input_tokens": 6,
+                    "cache_creation_input_tokens": 4
+                }),
+                Some(6),
+                Some(4),
+            ),
+            (
+                "invalid",
+                json!({
+                    "input_tokens": 11,
+                    "output_tokens": 7,
+                    "cache_read_input_tokens": "6",
+                    "cache_creation_input_tokens": 4.5
+                }),
+                None,
+                None,
+            ),
+        ];
+
+        for (case, raw_usage, expected_read, expected_creation) in cases {
+            let response = normalize_anthropic_response_json(json!({
+                "id": format!("msg_{case}"),
+                "model": "claude-test",
+                "content": [{"type": "text", "text": "ok"}],
+                "usage": raw_usage.clone()
+            }))
+            .unwrap();
+            let usage = response.usage.expect(case);
+
+            assert_eq!(usage.prompt_tokens, Some(11), "{case}");
+            assert_eq!(usage.completion_tokens, Some(7), "{case}");
+            assert_eq!(usage.total_tokens, Some(18), "{case}");
+            assert_eq!(usage.input_tokens, Some(11), "{case}");
+            assert_eq!(usage.output_tokens, Some(7), "{case}");
+            assert_eq!(usage.cache_read_input_tokens, expected_read, "{case}");
+            assert_eq!(
+                usage.cache_creation_input_tokens, expected_creation,
+                "{case}"
+            );
+            assert_eq!(usage.raw_usage, Some(raw_usage), "{case}");
+        }
+    }
+
+    #[test]
+    fn anthropic_stream_accumulates_start_cache_usage_and_final_output_usage() {
+        let mut accumulated_usage = None;
+        let start = normalize_anthropic_stream_json(
+            json!({
+                "type": "message_start",
+                "message": {
+                    "usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 1,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 40
+                    }
+                }
+            }),
+            &mut accumulated_usage,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(
+            start
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.cache_read_input_tokens),
+            Some(0)
+        );
+
+        let final_delta = normalize_anthropic_stream_json(
+            json!({
+                "type": "message_delta",
+                "usage": {"output_tokens": 25}
+            }),
+            &mut accumulated_usage,
+        )
+        .unwrap()
+        .unwrap();
+        let usage = final_delta.usage.unwrap();
+
+        assert_eq!(usage.prompt_tokens, Some(100));
+        assert_eq!(usage.completion_tokens, Some(25));
+        assert_eq!(usage.total_tokens, Some(125));
+        assert_eq!(usage.input_tokens, Some(100));
+        assert_eq!(usage.output_tokens, Some(25));
+        assert_eq!(usage.cache_read_input_tokens, Some(0));
+        assert_eq!(usage.cache_creation_input_tokens, Some(40));
+        assert_eq!(
+            usage.raw_usage,
+            Some(json!({
+                "input_tokens": 100,
+                "output_tokens": 25,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 40
+            }))
+        );
+    }
+
+    #[test]
+    fn anthropic_sse_state_drains_multiple_events_from_one_network_chunk() {
+        let mut state = AnthropicSseState {
+            buffer: concat!(
+                "event: message_start\n",
+                "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":0,\"cache_read_input_tokens\":0}}}\n\n",
+                "event: message_delta\n",
+                "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n\n"
+            )
+            .to_string(),
+            usage: None,
+        };
+
+        let first = state.next_event().expect("first buffered event");
+        normalize_anthropic_sse_event(&first, &mut state.usage)
+            .expect("normalize first event")
+            .expect("first delta");
+        let second = state.next_event().expect("second buffered event");
+        let second = normalize_anthropic_sse_event(&second, &mut state.usage)
+            .expect("normalize second event")
+            .expect("second delta");
+
+        let usage = second.usage.expect("merged usage");
+        assert_eq!(usage.input_tokens, Some(10));
+        assert_eq!(usage.output_tokens, Some(2));
+        assert_eq!(usage.cache_read_input_tokens, Some(0));
+        assert!(state.next_event().is_none());
+    }
+
+    #[test]
+    fn bedrock_usage_maps_cache_write_to_cache_creation() {
+        let usage = bedrock::TokenUsage::builder()
+            .input_tokens(100)
+            .output_tokens(25)
+            .total_tokens(125)
+            .cache_read_input_tokens(0)
+            .cache_write_input_tokens(40)
+            .build()
+            .unwrap();
+
+        let usage = normalize_bedrock_usage(usage);
+
+        assert_eq!(usage.input_tokens, Some(100));
+        assert_eq!(usage.output_tokens, Some(25));
+        assert_eq!(usage.cache_read_input_tokens, Some(0));
+        assert_eq!(usage.cache_creation_input_tokens, Some(40));
+        assert_eq!(
+            usage
+                .raw_usage
+                .as_ref()
+                .and_then(|raw| raw.get("cache_write_input_tokens")),
+            Some(&json!(40))
+        );
+    }
 }
 
 fn normalize_anthropic_response_json(value: Value) -> Result<ChatResponse, VvLlmError> {
@@ -891,17 +1062,7 @@ fn normalize_anthropic_response_json(value: Value) -> Result<ChatResponse, VvLlm
         .filter_map(text_block_text)
         .collect::<Vec<_>>()
         .join("\n");
-    let usage = value.get("usage").map(|usage| ChatUsage {
-        prompt_tokens: value_u32(usage.get("input_tokens")),
-        completion_tokens: value_u32(usage.get("output_tokens")),
-        total_tokens: match (
-            value_u32(usage.get("input_tokens")),
-            value_u32(usage.get("output_tokens")),
-        ) {
-            (Some(input), Some(output)) => input.checked_add(output),
-            _ => value_u32(usage.get("total_tokens")),
-        },
-    });
+    let usage = normalize_anthropic_usage(value.get("usage").cloned());
     Ok(ChatResponse {
         id: value_to_string(value.get("id")),
         model: value_to_string(value.get("model")),
@@ -915,6 +1076,7 @@ fn normalize_anthropic_response_json(value: Value) -> Result<ChatResponse, VvLlm
 #[derive(Debug, Default)]
 struct AnthropicSseState {
     buffer: String,
+    usage: Option<ChatUsage>,
 }
 
 impl AnthropicSseState {
@@ -934,7 +1096,10 @@ impl AnthropicSseState {
     }
 }
 
-fn normalize_anthropic_sse_event(event: &str) -> Result<Option<ChatStreamDelta>, VvLlmError> {
+fn normalize_anthropic_sse_event(
+    event: &str,
+    usage: &mut Option<ChatUsage>,
+) -> Result<Option<ChatStreamDelta>, VvLlmError> {
     let mut event_name = String::new();
     let mut data = Vec::new();
     for line in event.lines() {
@@ -954,19 +1119,29 @@ fn normalize_anthropic_sse_event(event: &str) -> Result<Option<ChatStreamDelta>,
         return Err(VvLlmError::Provider(anthropic_error_message(&value)));
     }
     let value = serde_json::from_str::<Value>(&data)?;
-    normalize_anthropic_stream_json(value)
+    normalize_anthropic_stream_json(value, usage)
 }
 
-fn normalize_anthropic_stream_json(value: Value) -> Result<Option<ChatStreamDelta>, VvLlmError> {
+fn normalize_anthropic_stream_json(
+    value: Value,
+    accumulated_usage: &mut Option<ChatUsage>,
+) -> Result<Option<ChatStreamDelta>, VvLlmError> {
     match value
         .get("type")
         .and_then(Value::as_str)
         .unwrap_or_default()
     {
-        "message_start" => Ok(Some(ChatStreamDelta {
-            raw_content: Some(value),
-            ..Default::default()
-        })),
+        "message_start" => {
+            merge_anthropic_usage(
+                accumulated_usage,
+                normalize_anthropic_usage(value.pointer("/message/usage").cloned()),
+            );
+            Ok(Some(ChatStreamDelta {
+                usage: accumulated_usage.clone(),
+                raw_content: Some(value),
+                ..Default::default()
+            }))
+        }
         "content_block_start" => {
             let Some(block) = value.get("content_block") else {
                 return Ok(None);
@@ -1014,12 +1189,11 @@ fn normalize_anthropic_stream_json(value: Value) -> Result<Option<ChatStreamDelt
             }
         }
         "message_delta" => {
-            let usage = value.get("usage").map(|usage| ChatUsage {
-                prompt_tokens: value_u32(usage.get("input_tokens")),
-                completion_tokens: value_u32(usage.get("output_tokens")),
-                total_tokens: value_u32(usage.get("total_tokens")),
-            });
-            Ok(usage.map(|usage| ChatStreamDelta {
+            merge_anthropic_usage(
+                accumulated_usage,
+                normalize_anthropic_usage(value.get("usage").cloned()),
+            );
+            Ok(accumulated_usage.clone().map(|usage| ChatStreamDelta {
                 usage: Some(usage),
                 ..Default::default()
             }))
@@ -1089,6 +1263,121 @@ fn value_u32(value: Option<&Value>) -> Option<u32> {
     value
         .and_then(Value::as_u64)
         .and_then(|value| u32::try_from(value).ok())
+}
+
+fn normalize_anthropic_usage(raw_usage: Option<Value>) -> Option<ChatUsage> {
+    let raw_usage = raw_usage.filter(|usage| !usage.is_null())?;
+    let input_tokens = value_u32(raw_usage.get("input_tokens"));
+    let output_tokens = value_u32(raw_usage.get("output_tokens"));
+    let total_tokens = match (input_tokens, output_tokens) {
+        (Some(input), Some(output)) => input.checked_add(output),
+        _ => value_u32(raw_usage.get("total_tokens")),
+    };
+
+    Some(ChatUsage {
+        prompt_tokens: input_tokens,
+        completion_tokens: output_tokens,
+        total_tokens,
+        input_tokens,
+        output_tokens,
+        cache_read_input_tokens: value_u32(raw_usage.get("cache_read_input_tokens")),
+        cache_creation_input_tokens: value_u32(
+            raw_usage
+                .get("cache_creation_input_tokens")
+                .or_else(|| raw_usage.get("cache_write_input_tokens")),
+        ),
+        raw_usage: Some(raw_usage),
+    })
+}
+
+fn merge_anthropic_usage(current: &mut Option<ChatUsage>, update: Option<ChatUsage>) {
+    let Some(update) = update else {
+        return;
+    };
+    let Some(current) = current.as_mut() else {
+        *current = Some(update);
+        return;
+    };
+
+    if update.prompt_tokens.is_some() {
+        current.prompt_tokens = update.prompt_tokens;
+    }
+    if update.completion_tokens.is_some() {
+        current.completion_tokens = update.completion_tokens;
+    }
+    if update.input_tokens.is_some() {
+        current.input_tokens = update.input_tokens;
+    }
+    if update.output_tokens.is_some() {
+        current.output_tokens = update.output_tokens;
+    }
+    if update.cache_read_input_tokens.is_some() {
+        current.cache_read_input_tokens = update.cache_read_input_tokens;
+    }
+    if update.cache_creation_input_tokens.is_some() {
+        current.cache_creation_input_tokens = update.cache_creation_input_tokens;
+    }
+    current.raw_usage = merge_usage_json(current.raw_usage.take(), update.raw_usage);
+    current.total_tokens = match (current.input_tokens, current.output_tokens) {
+        (Some(input), Some(output)) => input.checked_add(output),
+        _ => update.total_tokens.or(current.total_tokens),
+    };
+}
+
+fn merge_usage_json(current: Option<Value>, update: Option<Value>) -> Option<Value> {
+    match (current, update) {
+        (Some(Value::Object(mut current)), Some(Value::Object(update))) => {
+            current.extend(update);
+            Some(Value::Object(current))
+        }
+        (_, Some(update)) => Some(update),
+        (current, None) => current,
+    }
+}
+
+fn normalize_bedrock_usage(usage: bedrock::TokenUsage) -> ChatUsage {
+    let input_tokens = non_negative_u32(usage.input_tokens);
+    let output_tokens = non_negative_u32(usage.output_tokens);
+    let cache_read_input_tokens = usage.cache_read_input_tokens.and_then(non_negative_u32);
+    let cache_creation_input_tokens = usage.cache_write_input_tokens.and_then(non_negative_u32);
+    let mut raw_usage = Map::from_iter([
+        ("input_tokens".to_string(), json!(usage.input_tokens)),
+        ("output_tokens".to_string(), json!(usage.output_tokens)),
+        ("total_tokens".to_string(), json!(usage.total_tokens)),
+    ]);
+    if let Some(value) = usage.cache_read_input_tokens {
+        raw_usage.insert("cache_read_input_tokens".to_string(), json!(value));
+    }
+    if let Some(value) = usage.cache_write_input_tokens {
+        raw_usage.insert("cache_write_input_tokens".to_string(), json!(value));
+    }
+    if let Some(cache_details) = usage.cache_details {
+        raw_usage.insert(
+            "cache_details".to_string(),
+            Value::Array(
+                cache_details
+                    .into_iter()
+                    .map(|detail| {
+                        json!({
+                            "ttl": detail.ttl.as_str(),
+                            "input_tokens": detail.input_tokens,
+                        })
+                    })
+                    .collect(),
+            ),
+        );
+    }
+
+    ChatUsage {
+        prompt_tokens: input_tokens,
+        completion_tokens: output_tokens,
+        total_tokens: non_negative_u32(usage.total_tokens),
+        input_tokens,
+        output_tokens,
+        cache_read_input_tokens,
+        cache_creation_input_tokens,
+        raw_usage: Some(Value::Object(raw_usage)),
+    }
 }
 
 fn normalize_anthropic_stream_event(event: AnthropicStreamEvent) -> ChatStreamDelta {
@@ -1200,11 +1489,7 @@ fn normalize_bedrock_stream_event(
             }
         }
         bedrock::ConverseStreamOutput::Metadata(event) => {
-            let usage = event.usage.map(|usage| ChatUsage {
-                prompt_tokens: non_negative_u32(usage.input_tokens),
-                completion_tokens: non_negative_u32(usage.output_tokens),
-                total_tokens: non_negative_u32(usage.total_tokens),
-            });
+            let usage = event.usage.map(normalize_bedrock_usage);
             Ok(Some(ChatStreamDelta {
                 usage,
                 ..Default::default()

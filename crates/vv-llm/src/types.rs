@@ -343,7 +343,7 @@ pub struct ChatStreamDelta {
     pub done: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ChatUsage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_tokens: Option<u32>,
@@ -351,6 +351,16 @@ pub struct ChatUsage {
     pub completion_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_creation_input_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_usage: Option<serde_json::Value>,
 }
 
 fn is_false(value: &bool) -> bool {

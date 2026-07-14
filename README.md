@@ -6,7 +6,7 @@ Universal LLM client layer for Rust. One typed API for chat, streaming, embeddin
 
 ```toml
 [dependencies]
-vv-llm = "0.3.1"
+vv-llm = "0.4.0"
 ```
 
 The crate is published on crates.io as `vv-llm`; Rust code imports it as `vv_llm`. For local development in this repository, use `vv-llm = { path = "crates/vv-llm" }`.
@@ -153,6 +153,12 @@ while let Some(delta) = stream.next().await {
 
 OpenAI-compatible streams normalize content, tool calls, usage chunks, and tagged reasoning such as `<think>...</think>` or Gemini `<thought>...</thought>`. Anthropic Bedrock streams normalize text, tool use, reasoning, and usage events. The direct Anthropic SDK path currently exposes text streaming only because the upstream Rust crate does not expose tool/thinking stream request fields.
 
+## Usage Accounting
+
+`ChatUsage` keeps the legacy `prompt_tokens`, `completion_tokens`, and `total_tokens` fields and also exposes provider-neutral `input_tokens`, `output_tokens`, `cache_read_input_tokens`, and `cache_creation_input_tokens`. All fields are optional: a missing cache value is `None`, while an explicitly reported zero is `Some(0)`.
+
+`raw_usage` preserves the provider usage object for diagnostics and forward compatibility. OpenAI-compatible cache reads are normalized from prompt/input token details or compatible top-level fields. Anthropic cache reads and cache creation values are mapped directly; Bedrock `cache_write_input_tokens` maps to `cache_creation_input_tokens`. Invalid string, fractional, negative, or overflowing token values remain available in `raw_usage` but are not coerced into normalized counts.
+
 ## Tool Calls
 
 ```rust
@@ -199,9 +205,9 @@ hand-roll protocol conversion:
 - `ToolCall.extra_content` preserves vendor tool-call metadata such as Google thought signatures.
 - `ChatResponse.reasoning_content` and streamed `ChatStreamDelta.reasoning_content` expose supported reasoning output.
 
-When those extension fields are present, the OpenAI-compatible adapter uses
-`async-openai` BYOT under the hood and normalizes raw JSON responses back into
-the public `vv-llm` types.
+The OpenAI-compatible adapter keeps typed request construction, uses
+`async-openai` BYOT response decoding so provider usage extensions survive, and
+normalizes raw JSON responses back into the public `vv-llm` types.
 
 ## Multimodal Input
 

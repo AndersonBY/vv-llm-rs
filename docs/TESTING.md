@@ -25,11 +25,13 @@ Run the full local suite after code changes that touch public types, settings, p
 
 - `crates/vv-llm/tests/public_api.rs` checks exported API types and construction.
 - `crates/vv-llm/tests/settings.rs` checks settings parsing, endpoint binding, provider model override, and transport metadata preservation.
-- `crates/vv-llm/tests/chat.rs` checks chat adapter request shapes, factory routing, multimodal mapping, tools, multi-turn tool messages, stream normalization, and Vertex token cache behavior.
+- `crates/vv-llm/tests/chat.rs` checks chat adapter request shapes, factory routing, multimodal mapping, tools, multi-turn tool messages, stream normalization, usage/cache normalization, and Vertex token cache behavior.
 - `crates/vv-llm/tests/retrieval.rs` checks embedding and rerank request mapping.
 - `crates/vv-llm/tests/utilities.rs` checks message normalization, tokenizer behavior, fallback counting, and retry metadata.
 
 Prefer deterministic tests for mapping logic. A provider feature should not require a live API call just to verify that local request construction is correct.
+
+Usage normalization tests should distinguish a missing field from explicit zero, cover positive values and malformed numeric values, preserve `raw_usage`, and exercise both completion and final stream usage paths.
 
 ## Live Integration Tests
 
