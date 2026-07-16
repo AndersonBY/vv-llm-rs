@@ -75,6 +75,14 @@
           "function_call_available": true,
           "response_format_available": true,
           "native_multimodal": true
+        },
+        "kimi-k3": {
+          "id": "kimi-k3",
+          "context_length": 1048576,
+          "max_output_tokens": 1048576,
+          "function_call_available": true,
+          "response_format_available": true,
+          "native_multimodal": true
         }
       }
     },

@@ -337,6 +337,11 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
         .get("moonshot")
         .and_then(|backend| backend.models.get("kimi-k2.7-code"))
         .expect("kimi-k2.7-code should come from the Python default catalog");
+    let moonshot_kimi_k3 = settings
+        .backends
+        .get("moonshot")
+        .and_then(|backend| backend.models.get("kimi-k3"))
+        .expect("kimi-k3 should come from the Python default catalog");
     let zhipuai = settings
         .backends
         .get("zhipuai")
@@ -412,6 +417,11 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
     assert_eq!(moonshot.function_call_available, Some(true));
     assert_eq!(moonshot.response_format_available, Some(true));
     assert_eq!(moonshot.native_multimodal, Some(true));
+    assert_eq!(moonshot_kimi_k3.context_length, Some(1_048_576));
+    assert_eq!(moonshot_kimi_k3.max_output_tokens, Some(1_048_576));
+    assert_eq!(moonshot_kimi_k3.function_call_available, Some(true));
+    assert_eq!(moonshot_kimi_k3.response_format_available, Some(true));
+    assert_eq!(moonshot_kimi_k3.native_multimodal, Some(true));
     assert_eq!(qwen.context_length, Some(1_000_000));
     assert_eq!(qwen.max_output_tokens, Some(65_536));
     assert_eq!(qwen.function_call_available, Some(true));
