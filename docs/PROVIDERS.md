@@ -17,7 +17,8 @@ Implementation notes:
 - Supports `tool_choice` values accepted by the adapter.
 - Normalizes completion content, tool calls, and usage into `ChatResponse`.
 - Normalizes stream content, tool-call chunks, usage chunks, and done state into `ChatStreamDelta`.
-- Captures the raw `usage` object before typed response deserialization for both completion and stream responses without changing the request payload.
+- `create_stream` always sends `stream: true` and defaults missing `stream_options` to `{"include_usage": true}` so opt-in providers return their final usage chunk. Explicit caller-provided `stream_options` are preserved; completion requests are unchanged.
+- Captures the raw `usage` object before typed response deserialization for both completion and stream responses.
 - Maps `prompt_tokens_details.cached_tokens`, `input_tokens_details.cached_tokens`, and compatible top-level cache fields to `ChatUsage.cache_read_input_tokens`; cache creation/write variants map to `ChatUsage.cache_creation_input_tokens`.
 - Extracts tagged reasoning from streamed content for `<think>...</think>` and Gemini `<thought>...</thought>` style tags.
 

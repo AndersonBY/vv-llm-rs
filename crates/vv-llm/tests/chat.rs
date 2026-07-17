@@ -1055,6 +1055,8 @@ async fn openai_compatible_completion_preserves_usage_on_typed_request_path() {
         assert!(request.starts_with("POST /chat/completions "));
         assert_eq!(json["model"], "provider-model");
         assert_eq!(json["messages"][0]["content"], "hello");
+        assert!(json.get("stream").is_none());
+        assert!(json.get("stream_options").is_none());
 
         let response = serde_json::json!({
             "id": "chatcmpl-usage",
@@ -1104,7 +1106,7 @@ async fn openai_compatible_completion_preserves_usage_on_typed_request_path() {
 }
 
 #[tokio::test]
-async fn openai_compatible_stream_preserves_usage_on_typed_request_path() {
+async fn openai_compatible_stream_requests_and_preserves_provider_usage() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let api_base = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
@@ -1116,6 +1118,10 @@ async fn openai_compatible_stream_preserves_usage_on_typed_request_path() {
         assert!(request.starts_with("POST /chat/completions "));
         assert_eq!(json["model"], "provider-model");
         assert_eq!(json["stream"], true);
+        assert_eq!(
+            json["stream_options"],
+            serde_json::json!({"include_usage": true})
+        );
 
         let finish_chunk = serde_json::json!({
             "id": "chatcmpl-stream-finish",
@@ -1153,11 +1159,10 @@ async fn openai_compatible_stream_preserves_usage_on_typed_request_path() {
     });
 
     let client = OpenAiCompatibleChatClient::new("provider-model", api_base, "sk-test");
-    let mut request = ChatRequest::new(
+    let request = ChatRequest::new(
         "provider-model",
         vec![Message::text(MessageRole::User, "hello")],
     );
-    request.options.stream = Some(true);
     let mut stream = client.create_stream(request).await.unwrap();
     let finish_delta = stream.next().await.unwrap().unwrap();
     let usage_delta = stream.next().await.unwrap().unwrap();
@@ -1166,11 +1171,54 @@ async fn openai_compatible_stream_preserves_usage_on_typed_request_path() {
 
     assert!(finish_delta.done);
     assert!(!usage_delta.done);
+    assert_eq!(usage.prompt_tokens, Some(11));
+    assert_eq!(usage.completion_tokens, Some(7));
+    assert_eq!(usage.total_tokens, Some(18));
     assert_eq!(usage.cache_read_input_tokens, Some(6));
     assert_eq!(
         usage.raw_usage.unwrap()["prompt_tokens_details"]["cached_tokens"],
         serde_json::json!(6)
     );
+}
+
+#[tokio::test]
+async fn openai_compatible_stream_preserves_explicit_stream_options() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = read_http_request(&mut socket).await;
+        let body = request.split("\r\n\r\n").nth(1).expect("request body");
+        let json: serde_json::Value = serde_json::from_str(body).unwrap();
+
+        assert!(request.starts_with("POST /chat/completions "));
+        assert_eq!(json["stream"], true);
+        assert_eq!(
+            json["stream_options"],
+            serde_json::json!({"include_usage": false})
+        );
+
+        let body = "data: [DONE]\n\n";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        use tokio::io::AsyncWriteExt;
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let client = OpenAiCompatibleChatClient::new("provider-model", api_base, "sk-test");
+    let mut request = ChatRequest::new(
+        "provider-model",
+        vec![Message::text(MessageRole::User, "hello")],
+    );
+    request.options.stream = Some(false);
+    request.options.stream_options = Some(serde_json::json!({"include_usage": false}));
+    let mut stream = client.create_stream(request).await.unwrap();
+
+    assert!(stream.next().await.is_none());
+    server.await.unwrap();
 }
 
 #[tokio::test]

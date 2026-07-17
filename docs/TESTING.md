@@ -31,7 +31,7 @@ Run the full local suite after code changes that touch public types, settings, p
 
 Prefer deterministic tests for mapping logic. A provider feature should not require a live API call just to verify that local request construction is correct.
 
-Usage normalization tests should distinguish a missing field from explicit zero, cover positive values and malformed numeric values, preserve `raw_usage`, and exercise both completion and final stream usage paths.
+Usage normalization tests should distinguish a missing field from explicit zero, cover positive values and malformed numeric values, preserve `raw_usage`, and exercise both completion and final stream usage paths. OpenAI-compatible request-shape tests should also verify the default stream usage opt-in, explicit `stream_options` overrides, and that completion requests remain unchanged.
 
 ## Live Integration Tests
 

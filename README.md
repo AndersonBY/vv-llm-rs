@@ -6,7 +6,7 @@ Universal LLM client layer for Rust. One typed API for chat, streaming, embeddin
 
 ```toml
 [dependencies]
-vv-llm = "0.4.1"
+vv-llm = "0.4.2"
 ```
 
 The crate is published on crates.io as `vv-llm`; Rust code imports it as `vv_llm`. For local development in this repository, use `vv-llm = { path = "crates/vv-llm" }`.
@@ -152,6 +152,8 @@ while let Some(delta) = stream.next().await {
 ```
 
 OpenAI-compatible streams normalize content, tool calls, usage chunks, and tagged reasoning such as `<think>...</think>` or Gemini `<thought>...</thought>`. Anthropic Bedrock streams normalize text, tool use, reasoning, and usage events. The direct Anthropic SDK path currently exposes text streaming only because the upstream Rust crate does not expose tool/thinking stream request fields.
+
+For OpenAI-compatible clients, `create_stream` always sends `stream: true`. When `ChatRequestOptions::stream_options` is not provided, it also sends `{"include_usage": true}` so providers that require an explicit opt-in can return the final usage chunk. Caller-provided `stream_options`, including `{"include_usage": false}`, are preserved unchanged. This default does not affect non-streaming requests or other provider adapters.
 
 ## Usage Accounting
 

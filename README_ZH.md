@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-vv-llm = "0.4.1"
+vv-llm = "0.4.2"
 ```
 
 包已经发布到官方 crates.io，名称是 `vv-llm`，Rust 代码中以 `vv_llm` 导入。本仓库本地开发时可以使用 `vv-llm = { path = "crates/vv-llm" }`。
@@ -149,6 +149,8 @@ while let Some(delta) = stream.next().await {
 ```
 
 OpenAI-compatible stream 会归一化文本、工具调用、usage chunk，以及 `<think>...</think>` 或 Gemini `<thought>...</thought>` 这类 tagged reasoning。Anthropic Bedrock stream 会归一化文本、工具调用、reasoning 和 usage 事件。直接 Anthropic SDK 路径目前只暴露文本 streaming，因为上游 Rust crate 没有暴露工具/思考流请求字段。
+
+对于 OpenAI-compatible 客户端，`create_stream` 始终发送 `stream: true`。调用方未提供 `ChatRequestOptions::stream_options` 时，还会默认发送 `{"include_usage": true}`，让需要显式 opt-in 的服务商返回最终 usage chunk；调用方显式提供的 `stream_options`（包括 `{"include_usage": false}`）会原样保留。该默认值不影响非流式请求和其他 provider adapter。
 
 ## Usage 统计
 

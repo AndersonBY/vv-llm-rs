@@ -148,6 +148,7 @@ impl ChatClient for OpenAiCompatibleChatClient {
     }
 
     async fn create_stream(&self, request: ChatRequest) -> Result<ChatStream, VvLlmError> {
+        let request = prepare_stream_request(request);
         let client = self.client();
         let stream: Result<
             std::pin::Pin<
@@ -178,6 +179,14 @@ impl ChatClient for OpenAiCompatibleChatClient {
                 .map(|delta| normalizer.normalize(delta))
         })))
     }
+}
+
+fn prepare_stream_request(mut request: ChatRequest) -> ChatRequest {
+    request.options.stream = Some(true);
+    if request.options.stream_options.is_none() {
+        request.options.stream_options = Some(json!({"include_usage": true}));
+    }
+    request
 }
 
 fn to_openai_message(message: &Message) -> Result<ChatCompletionRequestMessage, VvLlmError> {
