@@ -13,6 +13,7 @@ Implementation notes:
 - Uses `async-openai`.
 - Maps `MessageRole::System`, `User`, `Assistant`, and `Tool` to OpenAI chat messages.
 - Maps text and image URL parts for multimodal user messages.
+- Serializes empty and reasoning-only assistant messages without tool calls as `content: ""`; reasoning stays in `reasoning_content`, while tool-call-only messages continue to omit `content`.
 - Maps `ChatTool` into function tools.
 - Supports `tool_choice` values accepted by the adapter.
 - Normalizes completion content, tool calls, and usage into `ChatResponse`.

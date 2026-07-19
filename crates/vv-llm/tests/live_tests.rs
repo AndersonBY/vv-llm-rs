@@ -46,6 +46,57 @@ async fn live_deepseek_openai_compatible_chat_completion() {
 
 #[tokio::test]
 #[ignore = "live API call; run with VV_LLM_RUN_LIVE_TESTS=1 cargo test --test live_tests -- --ignored"]
+async fn live_deepseek_accepts_reasoning_only_assistant_history() {
+    require_live();
+    let settings = load_live_settings(true).unwrap();
+    let (model, api_base, api_key) = resolved_parts(
+        settings
+            .resolve_chat_model(BackendType::DeepSeek, "deepseek-v4-pro")
+            .unwrap(),
+    );
+    let client = create_chat_client(BackendType::DeepSeek, model.clone(), api_base, api_key);
+    let reasoning_only = Message {
+        role: MessageRole::Assistant,
+        content: Vec::new(),
+        name: None,
+        tool_call_id: None,
+        tool_calls: Vec::new(),
+        reasoning_content: Some("Private prior reasoning.".to_string()),
+    };
+
+    let response = run_with_timer("deepseek_reasoning_only_history", || async {
+        client
+            .create_completion(ChatRequest {
+                model,
+                messages: vec![
+                    Message::text(MessageRole::System, "Reply concisely."),
+                    reasoning_only,
+                    Message::text(MessageRole::User, "Reply with OK."),
+                ],
+                options: ChatRequestOptions {
+                    max_tokens: Some(128),
+                    ..Default::default()
+                },
+                tools: Vec::new(),
+                tool_choice: None,
+                extra_body: serde_json::Value::Null,
+            })
+            .await
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        !response.content.trim().is_empty()
+            || response
+                .reasoning_content
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+    );
+}
+
+#[tokio::test]
+#[ignore = "live API call; run with VV_LLM_RUN_LIVE_TESTS=1 cargo test --test live_tests -- --ignored"]
 async fn live_qwen_openai_compatible_chat_with_system_prompt() {
     require_live();
     let settings = load_live_settings(true).unwrap();

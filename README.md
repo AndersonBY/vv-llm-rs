@@ -6,7 +6,7 @@ Universal LLM client layer for Rust. One typed API for chat, streaming, embeddin
 
 ```toml
 [dependencies]
-vv-llm = "0.4.2"
+vv-llm = "0.4.3"
 ```
 
 The crate is published on crates.io as `vv-llm`; Rust code imports it as `vv_llm`. For local development in this repository, use `vv-llm = { path = "crates/vv-llm" }`.
@@ -206,6 +206,11 @@ hand-roll protocol conversion:
 - `MessageContent::Text.cache_control` and `ChatTool.cache_control` preserve Anthropic prompt-cache breakpoints.
 - `ToolCall.extra_content` preserves vendor tool-call metadata such as Google thought signatures.
 - `ChatResponse.reasoning_content` and streamed `ChatStreamDelta.reasoning_content` expose supported reasoning output.
+
+For OpenAI-compatible assistant history, messages without tool calls always send a
+`content` key. Empty and reasoning-only messages use `content: ""`, while
+`reasoning_content` remains separate and is never promoted to visible content.
+Tool-call-only assistant messages keep the protocol's valid omitted-content shape.
 
 The OpenAI-compatible adapter keeps typed request construction, uses
 `async-openai` BYOT response decoding so provider usage extensions survive, and

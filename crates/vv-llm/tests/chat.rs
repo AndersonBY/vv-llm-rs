@@ -170,12 +170,75 @@ fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
     assert_eq!(json["model"], "fallback-model");
     assert_eq!(json["messages"][0]["role"], "system");
     assert_eq!(json["messages"][1]["role"], "assistant");
+    assert_eq!(json["messages"][1]["content"], "assistant");
     assert_eq!(json["messages"][2]["role"], "tool");
     assert_eq!(json["messages"][2]["tool_call_id"], "call-1");
     let temperature = json["temperature"].as_f64().unwrap();
     assert!((temperature - 0.2).abs() < 0.000_001);
     assert_eq!(json["max_tokens"], 64);
     assert_eq!(json["stream"], true);
+}
+
+#[test]
+fn openai_compatible_adapter_serializes_assistant_content_by_message_shape() {
+    let client =
+        OpenAiCompatibleChatClient::new("fallback-model", "https://api.openai.com/v1", "sk-test");
+    let request = ChatRequest {
+        model: "deepseek-v4-pro".to_string(),
+        messages: vec![
+            Message::text(MessageRole::Assistant, "visible answer"),
+            Message {
+                role: MessageRole::Assistant,
+                content: Vec::new(),
+                name: None,
+                tool_call_id: None,
+                tool_calls: Vec::new(),
+                reasoning_content: Some("hidden reasoning".to_string()),
+            },
+            Message {
+                role: MessageRole::Assistant,
+                content: Vec::new(),
+                name: None,
+                tool_call_id: None,
+                tool_calls: Vec::new(),
+                reasoning_content: None,
+            },
+            Message {
+                role: MessageRole::Assistant,
+                content: Vec::new(),
+                name: None,
+                tool_call_id: None,
+                tool_calls: vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "lookup".to_string(),
+                    arguments: r#"{"query":"rust"}"#.to_string(),
+                    index: None,
+                    extra_content: None,
+                }],
+                reasoning_content: None,
+            },
+        ],
+        options: Default::default(),
+        tools: Vec::new(),
+        tool_choice: None,
+        extra_body: serde_json::Value::Null,
+    };
+
+    let json = client.to_openai_json(&request).unwrap();
+    let messages = json["messages"].as_array().expect("messages array");
+
+    assert_eq!(
+        messages[0].get("content"),
+        Some(&serde_json::json!("visible answer"))
+    );
+    assert_eq!(messages[1].get("content"), Some(&serde_json::json!("")));
+    assert_eq!(
+        messages[1].get("reasoning_content"),
+        Some(&serde_json::json!("hidden reasoning"))
+    );
+    assert_eq!(messages[2].get("content"), Some(&serde_json::json!("")));
+    assert!(messages[3].get("content").is_none());
+    assert_eq!(messages[3]["tool_calls"][0]["function"]["name"], "lookup");
 }
 
 #[test]
@@ -296,7 +359,7 @@ fn openai_compatible_adapter_preserves_reasoning_extra_content_and_extra_body() 
     let json = client.to_openai_json(&request).unwrap();
 
     assert_eq!(json["messages"][0]["role"], "assistant");
-    assert_eq!(json["messages"][0]["content"], serde_json::Value::Null);
+    assert!(json["messages"][0].get("content").is_none());
     assert_eq!(json["messages"][0]["reasoning_content"], "old-thought");
     assert_eq!(
         json["messages"][0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"],
@@ -335,6 +398,10 @@ fn openai_compatible_adapter_preserves_empty_reasoning_content() {
     let json = client.to_openai_json(&request).unwrap();
 
     assert_eq!(json["messages"][0]["role"], "assistant");
+    assert_eq!(
+        json["messages"][0].get("content"),
+        Some(&serde_json::json!(""))
+    );
     assert_eq!(json["messages"][0]["reasoning_content"], "");
 }
 
@@ -983,7 +1050,7 @@ fn gemini_stream_chunk_json_extracts_thought_tags() {
 }
 
 #[tokio::test]
-async fn openai_compatible_completion_uses_json_path_for_empty_reasoning_content() {
+async fn openai_compatible_completion_sends_empty_content_for_reasoning_only_message() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let api_base = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
@@ -994,7 +1061,11 @@ async fn openai_compatible_completion_uses_json_path_for_empty_reasoning_content
 
         assert!(request.starts_with("POST /chat/completions "));
         assert_eq!(json["messages"][0]["role"], "assistant");
-        assert_eq!(json["messages"][0]["reasoning_content"], "");
+        assert_eq!(
+            json["messages"][0].get("content"),
+            Some(&serde_json::json!(""))
+        );
+        assert_eq!(json["messages"][0]["reasoning_content"], "hidden reasoning");
 
         let response = serde_json::json!({
             "id": "chatcmpl-test",
@@ -1028,7 +1099,7 @@ async fn openai_compatible_completion_uses_json_path_for_empty_reasoning_content
                 name: None,
                 tool_call_id: None,
                 tool_calls: Vec::new(),
-                reasoning_content: Some(String::new()),
+                reasoning_content: Some("hidden reasoning".to_string()),
             }],
             options: Default::default(),
             tools: Vec::new(),

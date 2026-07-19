@@ -207,7 +207,7 @@ fn to_openai_message(message: &Message) -> Result<ChatCompletionRequestMessage, 
         )),
         MessageRole::Assistant => Ok(ChatCompletionRequestMessage::Assistant(
             ChatCompletionRequestAssistantMessage {
-                content: if message.content.is_empty() {
+                content: if message.content.is_empty() && !message.tool_calls.is_empty() {
                     None
                 } else {
                     Some(ChatCompletionRequestAssistantMessageContent::Text(

@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-vv-llm = "0.4.2"
+vv-llm = "0.4.3"
 ```
 
 包已经发布到官方 crates.io，名称是 `vv-llm`，Rust 代码中以 `vv_llm` 导入。本仓库本地开发时可以使用 `vv-llm = { path = "crates/vv-llm" }`。
@@ -200,6 +200,10 @@ OpenAI-compatible provider 经常会暴露额外的请求 / 响应字段，用�
 - `MessageContent::Text.cache_control` 和 `ChatTool.cache_control` 会保留 Anthropic prompt-cache 断点。
 - `ToolCall.extra_content` 会保留供应商工具调用元数据，例如 Google thought signature。
 - `ChatResponse.reasoning_content` 和流式 `ChatStreamDelta.reasoning_content` 会暴露支持的 reasoning 输出。
+
+对于 OpenAI-compatible assistant 历史消息，只要消息不含工具调用，请求就一定发送
+`content` 键。完全空消息和仅 reasoning 的消息会发送 `content: ""`；
+`reasoning_content` 始终保持独立，不会转成可见文本。纯工具调用 assistant 消息继续使用协议允许的省略 `content` 形式。
 
 OpenAI-compatible adapter 继续使用类型化 request 构建，通过 `async-openai` BYOT 解码响应以保留 provider usage 扩展，并把原始 JSON 响应归一化成公开的 `vv-llm` 类型。
 
