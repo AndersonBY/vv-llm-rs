@@ -20,7 +20,8 @@ Implementation notes:
 - Normalizes stream content, tool-call chunks, usage chunks, and done state into `ChatStreamDelta`.
 - `create_stream` always sends `stream: true` and defaults missing `stream_options` to `{"include_usage": true}` so opt-in providers return their final usage chunk. Explicit caller-provided `stream_options` are preserved; completion requests are unchanged.
 - Captures the raw `usage` object before typed response deserialization for both completion and stream responses.
-- Maps `prompt_tokens_details.cached_tokens`, `input_tokens_details.cached_tokens`, and compatible top-level cache fields to `ChatUsage.cache_read_input_tokens`; cache creation/write variants map to `ChatUsage.cache_creation_input_tokens`.
+- Maps `prompt_tokens_details.cached_tokens`, `input_tokens_details.cached_tokens`, the official top-level `cached_tokens` field, and compatible top-level cache fields to `ChatUsage.cache_read_input_tokens`; cache creation/write variants map to `ChatUsage.cache_creation_input_tokens`.
+- Generic clients preserve a completely omitted cache-read value as `None`. Only clients created by `create_chat_client(BackendType::Moonshot, ...)` normalize complete cache-read omission to `Some(0)`, for both completion and stream responses. Present `null` or malformed cache-read fields remain `None`, and `raw_usage` is never modified with synthetic fields.
 - Extracts tagged reasoning from streamed content for `<think>...</think>` and Gemini `<thought>...</thought>` style tags.
 
 Keep OpenAI-compatible behavior generic unless a provider requires a settings-level transport distinction.

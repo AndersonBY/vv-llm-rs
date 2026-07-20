@@ -23,11 +23,32 @@ use serde_json::{json, Value};
 
 use super::{ChatClient, ChatStream};
 
+#[derive(Debug, Clone, Copy)]
+struct UsageNormalizationPolicy {
+    omitted_cache_read: OmittedCacheRead,
+}
+
+impl UsageNormalizationPolicy {
+    const GENERIC: Self = Self {
+        omitted_cache_read: OmittedCacheRead::PreserveMissing,
+    };
+    const MOONSHOT: Self = Self {
+        omitted_cache_read: OmittedCacheRead::NormalizeToZero,
+    };
+}
+
+#[derive(Debug, Clone, Copy)]
+enum OmittedCacheRead {
+    PreserveMissing,
+    NormalizeToZero,
+}
+
 #[derive(Debug, Clone)]
 pub struct OpenAiCompatibleChatClient {
     model: String,
     api_base: String,
     api_key: String,
+    usage_policy: UsageNormalizationPolicy,
 }
 
 impl OpenAiCompatibleChatClient {
@@ -36,10 +57,28 @@ impl OpenAiCompatibleChatClient {
         api_base: impl Into<String>,
         api_key: impl Into<String>,
     ) -> Self {
+        Self::with_usage_policy(model, api_base, api_key, UsageNormalizationPolicy::GENERIC)
+    }
+
+    pub(super) fn for_moonshot(
+        model: impl Into<String>,
+        api_base: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Self {
+        Self::with_usage_policy(model, api_base, api_key, UsageNormalizationPolicy::MOONSHOT)
+    }
+
+    fn with_usage_policy(
+        model: impl Into<String>,
+        api_base: impl Into<String>,
+        api_key: impl Into<String>,
+        usage_policy: UsageNormalizationPolicy,
+    ) -> Self {
         Self {
             model: model.into(),
             api_base: api_base.into(),
             api_key: api_key.into(),
+            usage_policy,
         }
     }
 
@@ -51,24 +90,15 @@ impl OpenAiCompatibleChatClient {
     }
 
     pub fn normalize_stream_chunk_json(
-        mut chunk: serde_json::Value,
+        chunk: serde_json::Value,
     ) -> Result<ChatStreamDelta, VvLlmError> {
-        let extra_content = stream_tool_call_extra_content(&chunk);
-        let reasoning_content = stream_reasoning_content(&chunk);
-        let usage = take_openai_usage(&mut chunk).and_then(normalize_openai_usage);
-        let chunk: async_openai::types::chat::CreateChatCompletionStreamResponse =
-            serde_json::from_value(chunk)?;
-        let mut delta = normalize_openai_stream_chunk(chunk);
-        delta.usage = usage;
-        delta.reasoning_content.push_str(&reasoning_content);
-        apply_stream_tool_call_extra_content(&mut delta, extra_content);
-        Ok(delta)
+        normalize_openai_stream_chunk_json(chunk, UsageNormalizationPolicy::GENERIC)
     }
 
     pub fn normalize_completion_json(
         response: serde_json::Value,
     ) -> Result<ChatResponse, VvLlmError> {
-        normalize_openai_completion_json(response)
+        normalize_openai_completion_json(response, UsageNormalizationPolicy::GENERIC)
     }
 
     fn to_openai_request(
@@ -144,7 +174,7 @@ impl ChatClient for OpenAiCompatibleChatClient {
             };
         let response_json =
             response_json.map_err(|error| VvLlmError::Provider(error.to_string()))?;
-        normalize_openai_completion_json(response_json)
+        normalize_openai_completion_json(response_json, self.usage_policy)
     }
 
     async fn create_stream(&self, request: ChatRequest) -> Result<ChatStream, VvLlmError> {
@@ -172,13 +202,31 @@ impl ChatClient for OpenAiCompatibleChatClient {
             >,
         > = stream.map_err(|error| VvLlmError::Provider(error.to_string()))?;
         let mut normalizer = TaggedReasoningNormalizer::for_model(&request.model);
+        let usage_policy = self.usage_policy;
         Ok(Box::pin(stream.map(move |chunk| {
             chunk
                 .map_err(|error| VvLlmError::Provider(error.to_string()))
-                .and_then(OpenAiCompatibleChatClient::normalize_stream_chunk_json)
+                .and_then(|chunk| normalize_openai_stream_chunk_json(chunk, usage_policy))
                 .map(|delta| normalizer.normalize(delta))
         })))
     }
+}
+
+fn normalize_openai_stream_chunk_json(
+    mut chunk: Value,
+    usage_policy: UsageNormalizationPolicy,
+) -> Result<ChatStreamDelta, VvLlmError> {
+    let extra_content = stream_tool_call_extra_content(&chunk);
+    let reasoning_content = stream_reasoning_content(&chunk);
+    let usage =
+        take_openai_usage(&mut chunk).and_then(|usage| normalize_openai_usage(usage, usage_policy));
+    let chunk: async_openai::types::chat::CreateChatCompletionStreamResponse =
+        serde_json::from_value(chunk)?;
+    let mut delta = normalize_openai_stream_chunk(chunk);
+    delta.usage = usage;
+    delta.reasoning_content.push_str(&reasoning_content);
+    apply_stream_tool_call_extra_content(&mut delta, extra_content);
+    Ok(delta)
 }
 
 fn prepare_stream_request(mut request: ChatRequest) -> ChatRequest {
@@ -342,10 +390,14 @@ fn from_openai_tool_call(tool_call: ChatCompletionMessageToolCalls) -> Option<To
     }
 }
 
-fn normalize_openai_completion_json(mut response: Value) -> Result<ChatResponse, VvLlmError> {
+fn normalize_openai_completion_json(
+    mut response: Value,
+    usage_policy: UsageNormalizationPolicy,
+) -> Result<ChatResponse, VvLlmError> {
     let reasoning_content = completion_reasoning_content(&response);
     let extra_content = completion_tool_call_extra_content(&response);
-    let usage = take_openai_usage(&mut response).and_then(normalize_openai_usage);
+    let usage = take_openai_usage(&mut response)
+        .and_then(|usage| normalize_openai_usage(usage, usage_policy));
     let response: async_openai::types::chat::CreateChatCompletionResponse =
         serde_json::from_value(response)?;
     let mut normalized = normalize_openai_completion_response(response);
@@ -387,7 +439,10 @@ fn take_openai_usage(response: &mut Value) -> Option<Value> {
         .filter(|usage| !usage.is_null())
 }
 
-fn normalize_openai_usage(raw_usage: Value) -> Option<ChatUsage> {
+fn normalize_openai_usage(
+    raw_usage: Value,
+    usage_policy: UsageNormalizationPolicy,
+) -> Option<ChatUsage> {
     if raw_usage.is_null() {
         return None;
     }
@@ -398,15 +453,7 @@ fn normalize_openai_usage(raw_usage: Value) -> Option<ChatUsage> {
         .or_else(|| value_u32(raw_usage.get("output_tokens")));
     let input_tokens = value_u32(raw_usage.get("input_tokens")).or(prompt_tokens);
     let output_tokens = value_u32(raw_usage.get("output_tokens")).or(completion_tokens);
-    let cache_read_input_tokens = first_nested_u32(
-        &raw_usage,
-        &[
-            &["prompt_tokens_details", "cached_tokens"],
-            &["input_tokens_details", "cached_tokens"],
-            &["cache_read_input_tokens"],
-            &["cache_read_tokens"],
-        ],
-    );
+    let cache_read_input_tokens = normalize_cache_read_input_tokens(&raw_usage, usage_policy);
     let cache_creation_input_tokens = first_nested_u32(
         &raw_usage,
         &[
@@ -454,13 +501,50 @@ fn normalize_typed_openai_usage(usage: async_openai::types::chat::CompletionUsag
 }
 
 fn first_nested_u32(value: &Value, paths: &[&[&str]]) -> Option<u32> {
-    paths.iter().find_map(|path| {
-        let mut current = value;
-        for key in *path {
-            current = current.get(*key)?;
+    paths
+        .iter()
+        .find_map(|path| nested_value(value, path).and_then(|value| value_u32(Some(value))))
+}
+
+fn normalize_cache_read_input_tokens(
+    raw_usage: &Value,
+    usage_policy: UsageNormalizationPolicy,
+) -> Option<u32> {
+    const CACHE_READ_PATHS: &[&[&str]] = &[
+        &["prompt_tokens_details", "cached_tokens"],
+        &["input_tokens_details", "cached_tokens"],
+        &["cached_tokens"],
+        &["cache_read_input_tokens"],
+        &["cache_read_tokens"],
+    ];
+
+    if !raw_usage.is_object() {
+        return None;
+    }
+
+    let mut field_present = false;
+    for path in CACHE_READ_PATHS {
+        if let Some(value) = nested_value(raw_usage, path) {
+            field_present = true;
+            if let Some(value) = value_u32(Some(value)) {
+                return Some(value);
+            }
         }
-        value_u32(Some(current))
-    })
+    }
+
+    if field_present {
+        return None;
+    }
+
+    match usage_policy.omitted_cache_read {
+        OmittedCacheRead::PreserveMissing => None,
+        OmittedCacheRead::NormalizeToZero => Some(0),
+    }
+}
+
+fn nested_value<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    path.iter()
+        .try_fold(value, |current, key| current.get(*key))
 }
 
 fn value_u32(value: Option<&Value>) -> Option<u32> {

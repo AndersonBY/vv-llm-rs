@@ -35,6 +35,9 @@ pub fn create_chat_client(
 
     match backend {
         BackendType::Anthropic => Box::new(AnthropicChatClient::new(model, api_base, api_key)),
+        BackendType::Moonshot => Box::new(OpenAiCompatibleChatClient::for_moonshot(
+            model, api_base, api_key,
+        )),
         _ => Box::new(OpenAiCompatibleChatClient::new(model, api_base, api_key)),
     }
 }

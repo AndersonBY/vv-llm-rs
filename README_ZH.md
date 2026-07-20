@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-vv-llm = "0.4.3"
+vv-llm = "0.4.4"
 ```
 
 包已经发布到官方 crates.io，名称是 `vv-llm`，Rust 代码中以 `vv_llm` 导入。本仓库本地开发时可以使用 `vv-llm = { path = "crates/vv-llm" }`。
@@ -156,7 +156,9 @@ OpenAI-compatible stream 会归一化文本、工具调用、usage chunk，以�
 
 `ChatUsage` 保留原有的 `prompt_tokens`、`completion_tokens`、`total_tokens`，同时新增 provider-neutral 的 `input_tokens`、`output_tokens`、`cache_read_input_tokens`、`cache_creation_input_tokens`。所有字段均为可选值：provider 未上报 cache 字段时为 `None`，明确上报 0 时为 `Some(0)`。
 
-`raw_usage` 保留 provider 原始 usage 对象，供诊断和未来兼容使用。OpenAI-compatible 的 cache read 会从 prompt/input token details 或兼容的顶层字段归一化；Anthropic 的 cache read/cache creation 直接映射；Bedrock 的 `cache_write_input_tokens` 映射到 `cache_creation_input_tokens`。string、小数、负数或溢出的 token 值不会被强转为归一化计数，但仍保留在 `raw_usage` 中。
+`raw_usage` 保留 provider 原始 usage 对象，供诊断和未来兼容使用。OpenAI-compatible 的 cache read 会从 prompt/input token details、官方顶层 `cached_tokens` 或其他兼容的顶层字段归一化；Anthropic 的 cache read/cache creation 直接映射；Bedrock 的 `cache_write_input_tokens` 映射到 `cache_creation_input_tokens`。string、小数、负数或溢出的 token 值不会被强转为归一化计数，但仍保留在 `raw_usage` 中。
+
+通用 OpenAI-compatible 客户端会把缺失的 cache-read 值保留为 `None`。通过 `create_chat_client(BackendType::Moonshot, ...)` 创建的客户端会在 completion 和 stream 中应用 Moonshot provider 契约：仅当所有已识别的 cache-read 字段都完全省略时，才把 `cache_read_input_tokens` 归一化为 `Some(0)`；字段明确存在但为 `null` 或无效值时仍为 `None`。该策略不会向 `raw_usage` 插入任何伪造字段。
 
 ## 工具调用
 

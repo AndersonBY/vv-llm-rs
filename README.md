@@ -6,7 +6,7 @@ Universal LLM client layer for Rust. One typed API for chat, streaming, embeddin
 
 ```toml
 [dependencies]
-vv-llm = "0.4.3"
+vv-llm = "0.4.4"
 ```
 
 The crate is published on crates.io as `vv-llm`; Rust code imports it as `vv_llm`. For local development in this repository, use `vv-llm = { path = "crates/vv-llm" }`.
@@ -159,7 +159,9 @@ For OpenAI-compatible clients, `create_stream` always sends `stream: true`. When
 
 `ChatUsage` keeps the legacy `prompt_tokens`, `completion_tokens`, and `total_tokens` fields and also exposes provider-neutral `input_tokens`, `output_tokens`, `cache_read_input_tokens`, and `cache_creation_input_tokens`. All fields are optional: a missing cache value is `None`, while an explicitly reported zero is `Some(0)`.
 
-`raw_usage` preserves the provider usage object for diagnostics and forward compatibility. OpenAI-compatible cache reads are normalized from prompt/input token details or compatible top-level fields. Anthropic cache reads and cache creation values are mapped directly; Bedrock `cache_write_input_tokens` maps to `cache_creation_input_tokens`. Invalid string, fractional, negative, or overflowing token values remain available in `raw_usage` but are not coerced into normalized counts.
+`raw_usage` preserves the provider usage object for diagnostics and forward compatibility. OpenAI-compatible cache reads are normalized from prompt/input token details, the official top-level `cached_tokens` field, or compatible top-level cache fields. Anthropic cache reads and cache creation values are mapped directly; Bedrock `cache_write_input_tokens` maps to `cache_creation_input_tokens`. Invalid string, fractional, negative, or overflowing token values remain available in `raw_usage` but are not coerced into normalized counts.
+
+Generic OpenAI-compatible clients keep an omitted cache-read value as `None`. Clients created through `create_chat_client(BackendType::Moonshot, ...)` apply Moonshot's provider contract for both completions and streams: when every recognized cache-read field is absent, `cache_read_input_tokens` is normalized to `Some(0)`. An explicitly present `null` or invalid cache-read value remains `None`. This policy never inserts synthetic fields into `raw_usage`.
 
 ## Tool Calls
 
