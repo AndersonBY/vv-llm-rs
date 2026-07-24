@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-vv-llm = "0.4.4"
+vv-llm = "0.4.5"
 ```
 
 包已经发布到官方 crates.io，名称是 `vv-llm`，Rust 代码中以 `vv_llm` 导入。本仓库本地开发时可以使用 `vv-llm = { path = "crates/vv-llm" }`。

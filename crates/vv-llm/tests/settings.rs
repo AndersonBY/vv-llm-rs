@@ -367,6 +367,11 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
         .get("anthropic")
         .and_then(|backend| backend.models.get("claude-sonnet-5"))
         .expect("claude-sonnet-5 should come from the Python default catalog");
+    let anthropic_opus_5 = settings
+        .backends
+        .get("anthropic")
+        .and_then(|backend| backend.models.get("claude-opus-5"))
+        .expect("claude-opus-5 should come from the Python default catalog");
     let minimax = settings
         .backends
         .get("minimax")
@@ -442,6 +447,11 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
     assert_eq!(anthropic_sonnet_5.context_length, Some(1_000_000));
     assert_eq!(anthropic_sonnet_5.max_output_tokens, Some(128_000));
     assert_eq!(anthropic_sonnet_5.native_multimodal, Some(true));
+    assert_eq!(anthropic_opus_5.context_length, Some(1_000_000));
+    assert_eq!(anthropic_opus_5.max_output_tokens, Some(128_000));
+    assert_eq!(anthropic_opus_5.function_call_available, Some(true));
+    assert_eq!(anthropic_opus_5.response_format_available, Some(false));
+    assert_eq!(anthropic_opus_5.native_multimodal, Some(true));
     assert_eq!(minimax.context_length, Some(1_000_000));
     assert_eq!(minimax.max_output_tokens, Some(10_240));
     assert_eq!(minimax.function_call_available, Some(true));

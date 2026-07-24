@@ -1266,6 +1266,14 @@
           "function_call_available": true,
           "response_format_available": false,
           "native_multimodal": true
+        },
+        "claude-opus-5": {
+          "id": "claude-opus-5",
+          "context_length": 1000000,
+          "max_output_tokens": 128000,
+          "function_call_available": true,
+          "response_format_available": false,
+          "native_multimodal": true
         }
       }
     },
