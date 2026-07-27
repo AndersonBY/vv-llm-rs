@@ -4,11 +4,13 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_util::StreamExt;
 use live_support::{load_live_settings, require_live, resolved_parts, run_with_timer};
 use std::fs;
+use std::time::Duration;
 use vv_llm::{
     chat_clients::{create_chat_client, create_chat_client_from_resolved},
     embedding_clients::create_embedding_client,
     rerank_clients::{CustomJsonHttpRerankClient, RerankMapping},
     BackendType, ChatRequest, ChatRequestOptions, ChatTool, Message, MessageContent, MessageRole,
+    MiddlewareChatClient, RetryPolicy, ThinkingPreference,
 };
 
 #[tokio::test]
@@ -42,6 +44,93 @@ async fn live_deepseek_openai_compatible_chat_completion() {
     .unwrap();
 
     assert!(!response.content.trim().is_empty());
+}
+
+#[tokio::test]
+#[ignore = "live API call; run with VV_LLM_RUN_LIVE_TESTS=1 cargo test --test live_tests -- --ignored"]
+async fn live_deepseek_typed_thinking_preferences() {
+    require_live();
+    let settings = load_live_settings(true).unwrap();
+    let (model, api_base, api_key) = resolved_parts(
+        settings
+            .resolve_chat_model(BackendType::DeepSeek, "deepseek-v4-flash")
+            .unwrap(),
+    );
+    let client = create_chat_client(BackendType::DeepSeek, model.clone(), api_base, api_key);
+
+    for (label, preference, expect_reasoning) in [
+        ("default", ThinkingPreference::Default, true),
+        ("enabled", ThinkingPreference::enabled(), true),
+        ("disabled", ThinkingPreference::Disabled, false),
+    ] {
+        let response = run_with_timer(label, || async {
+            client
+                .create(
+                    ChatRequest::new(
+                        model.clone(),
+                        vec![Message::text(MessageRole::User, "Reply with exactly OK.")],
+                    )
+                    .with_thinking(preference),
+                )
+                .await
+        })
+        .await
+        .unwrap();
+
+        assert!(!response.content.trim().is_empty());
+        assert_eq!(
+            response
+                .reasoning_content
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty()),
+            expect_reasoning,
+            "unexpected reasoning state for {label}"
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "live API call; run with VV_LLM_RUN_LIVE_TESTS=1 cargo test --test live_tests -- --ignored"]
+async fn live_deepseek_middleware_metadata() {
+    require_live();
+    let settings = load_live_settings(true).unwrap();
+    let (model, api_base, api_key) = resolved_parts(
+        settings
+            .resolve_chat_model(BackendType::DeepSeek, "deepseek-v4-flash")
+            .unwrap(),
+    );
+    let client = create_chat_client(BackendType::DeepSeek, model.clone(), api_base, api_key);
+    let runtime = MiddlewareChatClient::new(client, Vec::new())
+        .unwrap()
+        .with_retry_policy(
+            RetryPolicy::new(2)
+                .with_base_delay(Duration::from_millis(250))
+                .with_total_timeout(Duration::from_secs(30)),
+        );
+
+    let result = run_with_timer("deepseek_middleware_metadata", || async {
+        runtime
+            .create_with_metadata(
+                ChatRequest::new(
+                    model.clone(),
+                    vec![Message::text(MessageRole::User, "Reply with exactly OK.")],
+                )
+                .with_thinking(ThinkingPreference::Disabled),
+            )
+            .await
+    })
+    .await
+    .unwrap();
+
+    assert!(!result.response.content.trim().is_empty());
+    assert!(result.response.reasoning_content.is_none());
+    assert_eq!(
+        result.metadata.provider.as_deref(),
+        Some("openai-compatible")
+    );
+    assert_eq!(result.metadata.model.as_deref(), Some(model.as_str()));
+    assert!(result.metadata.attempts >= 1);
+    assert!(result.metadata.latency_ms.is_some());
 }
 
 #[tokio::test]

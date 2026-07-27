@@ -2,6 +2,10 @@
 
 This document records how each provider path maps the public `vv-llm` API to SDK or HTTP behavior.
 
+Retry, middleware, registry lookup, fallback selection, and cross-provider
+capability filtering do not belong in provider adapters. Those behaviors are
+implemented by the provider-neutral execution layer.
+
 ## OpenAI-Compatible Chat
 
 Module: `crates/vv-llm/src/chat_clients/openai_compatible.rs`
@@ -17,6 +21,7 @@ Implementation notes:
 - Maps `ChatTool` into function tools.
 - Supports `tool_choice` values accepted by the adapter.
 - Forwards `ChatRequestOptions::thinking` as the top-level `thinking` request field when explicitly set.
+- `ThinkingPreference` is normalized into that existing field before the adapter runs, so typed and legacy callers share the same request path.
 - Normalizes completion content, tool calls, and usage into `ChatResponse`.
 - Normalizes stream content, tool-call chunks, usage chunks, and done state into `ChatStreamDelta`.
 - `create_stream` always sends `stream: true` and defaults missing `stream_options` to `{"include_usage": true}` so opt-in providers return their final usage chunk. Explicit caller-provided `stream_options` are preserved; completion requests are unchanged.
@@ -39,6 +44,7 @@ Implementation notes:
 - Extracts system messages into the Anthropic system prompt field.
 - Maps text and image data URL content into Anthropic message content.
 - Forwards `ChatRequestOptions::thinking` through the JSON request path when explicitly set.
+- `ThinkingPreference` is normalized into that existing field before the adapter runs.
 - Maps non-streaming text responses, input/output usage, cache reads, cache creation, and raw usage into `ChatResponse`.
 - Accumulates direct JSON stream usage across `message_start` and `message_delta`, retaining initial input/cache values with the final output count.
 - Direct streaming currently exposes normalized text deltas. The upstream crate does not expose all tool/thinking stream request fields, so full tool and reasoning streaming is handled through the Bedrock path where available.

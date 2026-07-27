@@ -102,7 +102,12 @@
           "max_output_tokens": 8192,
           "function_call_available": true,
           "response_format_available": false,
-          "native_multimodal": false
+          "native_multimodal": false,
+          "capabilities": {
+            "tools": true,
+            "structured_output": "none",
+            "thinking": "always_enabled"
+          }
         },
         "deepseek-v4-flash": {
           "id": "deepseek-v4-flash",
@@ -110,7 +115,12 @@
           "max_output_tokens": 384000,
           "function_call_available": true,
           "response_format_available": true,
-          "native_multimodal": false
+          "native_multimodal": false,
+          "capabilities": {
+            "tools": true,
+            "structured_output": "json_schema",
+            "thinking": "configurable"
+          }
         },
         "deepseek-v4-pro": {
           "id": "deepseek-v4-pro",
@@ -118,7 +128,12 @@
           "max_output_tokens": 384000,
           "function_call_available": true,
           "response_format_available": true,
-          "native_multimodal": false
+          "native_multimodal": false,
+          "capabilities": {
+            "tools": true,
+            "structured_output": "json_schema",
+            "thinking": "configurable"
+          }
         }
       }
     },

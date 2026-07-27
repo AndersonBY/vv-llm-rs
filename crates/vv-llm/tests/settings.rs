@@ -471,6 +471,75 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
 }
 
 #[test]
+fn default_deepseek_catalog_exposes_typed_thinking_capabilities() {
+    let settings = LlmSettings::from_json_str("{}").unwrap();
+    let backend = settings
+        .backends
+        .get("deepseek")
+        .expect("deepseek defaults should exist");
+
+    let flash = backend
+        .models
+        .get("deepseek-v4-flash")
+        .expect("deepseek-v4-flash should exist")
+        .capabilities();
+    assert!(flash.tools);
+    assert_eq!(
+        flash.structured_output,
+        vv_llm::StructuredOutputCapability::JsonSchema
+    );
+    assert_eq!(flash.thinking, vv_llm::ThinkingCapability::Configurable);
+
+    let reasoner = backend
+        .models
+        .get("deepseek-reasoner")
+        .expect("deepseek-reasoner should exist")
+        .capabilities();
+    assert_eq!(reasoner.thinking, vv_llm::ThinkingCapability::AlwaysEnabled);
+}
+
+#[test]
+fn legacy_overrides_update_default_capabilities_without_losing_thinking_metadata() {
+    let raw = r#"{
+      "VERSION": "2",
+      "endpoints": [{"id":"deepseek-default","api_base":"https://api.deepseek.com","api_key":"sk-test"}],
+      "backends": {
+        "deepseek": {
+          "models": {
+            "deepseek-v4-flash": {
+              "id":"deepseek-v4-flash",
+              "endpoints":["deepseek-default"],
+              "function_call_available": false,
+              "response_format_available": false,
+              "native_multimodal": true
+            }
+          }
+        }
+      }
+    }"#;
+
+    let settings = LlmSettings::from_json_str(raw).unwrap();
+    let capabilities = settings
+        .resolve_chat_model(BackendType::DeepSeek, "deepseek-v4-flash")
+        .unwrap()
+        .model
+        .capabilities();
+
+    assert!(!capabilities.tools);
+    assert_eq!(
+        capabilities.structured_output,
+        vv_llm::StructuredOutputCapability::None
+    );
+    assert!(capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Image));
+    assert_eq!(
+        capabilities.thinking,
+        vv_llm::ThinkingCapability::Configurable
+    );
+}
+
+#[test]
 fn merges_user_chat_model_overrides_with_python_defaults() {
     let raw = r#"{
       "VERSION": "2",

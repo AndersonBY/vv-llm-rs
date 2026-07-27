@@ -28,8 +28,15 @@ Run the full local suite after code changes that touch public types, settings, p
 - `crates/vv-llm/tests/chat.rs` checks chat adapter request shapes, factory routing, multimodal mapping, tools, multi-turn tool messages, stream normalization, usage/cache normalization, and Vertex token cache behavior.
 - `crates/vv-llm/tests/retrieval.rs` checks embedding and rerank request mapping.
 - `crates/vv-llm/tests/utilities.rs` checks message normalization, tokenizer behavior, fallback counting, and retry metadata.
+- `crates/vv-llm/tests/middleware.rs` checks versioned hooks, retry integration, and response metadata.
+- `crates/vv-llm/tests/registry.rs` checks capability-aware fallback, non-fallback errors, and the first-visible-chunk boundary.
+- `crates/vv-llm/tests/scripted_client.rs` checks deterministic scripted responses, errors, request recording, and streams.
 
 Prefer deterministic tests for mapping logic. A provider feature should not require a live API call just to verify that local request construction is correct.
+
+Use `ScriptedChatClient` for execution-policy tests. A streaming conformance test
+must distinguish an error before the first visible chunk, where fallback is
+allowed, from an error after a visible chunk, where replay is forbidden.
 
 Usage normalization tests should distinguish a missing field from explicit zero, cover positive values and malformed numeric values, preserve `raw_usage`, and exercise both completion and final stream usage paths. OpenAI-compatible request-shape tests should also verify assistant text, reasoning-only, empty, and tool-call-only serialization; the default stream usage opt-in; explicit `stream_options` overrides; and that completion requests remain unchanged.
 
@@ -75,6 +82,7 @@ Credential detection accepts:
 `live_tests.rs` covers:
 
 - DeepSeek OpenAI-compatible chat completion.
+- DeepSeek `deepseek-v4-flash` typed thinking defaults, explicit enable, and explicit disable.
 - Qwen OpenAI-compatible chat with system prompt.
 - Qwen `qwen3.7-max` OpenAI-compatible chat completion.
 - ZhiPuAI OpenAI-compatible chat completion.

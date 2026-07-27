@@ -1,0 +1,24 @@
+{
+  "VERSION": "2",
+  "endpoints": [
+    {
+      "id": "deepseek-default",
+      "api_base": "https://openrouter.ai/api/v1",
+      "api_key": "YOUR_API_KEY"
+    }
+  ],
+  "backends": {
+    "deepseek": {
+      "models": {
+        "deepseek-v4-flash": {
+          "id": "deepseek/deepseek-v4-flash",
+          "endpoints": [
+            "deepseek-default"
+          ]
+        }
+      }
+    }
+  },
+  "embedding_backends": {},
+  "rerank_backends": {}
+}

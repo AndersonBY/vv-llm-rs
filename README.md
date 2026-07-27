@@ -6,7 +6,7 @@ Universal LLM client layer for Rust. One typed API for chat, streaming, embeddin
 
 ```toml
 [dependencies]
-vv-llm = "0.4.5"
+vv-llm = "0.4.7"
 ```
 
 The crate is published on crates.io as `vv-llm`; Rust code imports it as `vv_llm`. For local development in this repository, use `vv-llm = { path = "crates/vv-llm" }`.
@@ -47,13 +47,61 @@ async fn main() -> Result<(), vv_llm::VvLlmError> {
         )],
     );
     request.options.max_tokens = Some(128);
+    request = request.with_thinking(vv_llm::ThinkingPreference::Disabled);
 
-    let response = client.create_completion(request).await?;
+    let response = client.create(request).await?;
 
     println!("{}", response.content);
     Ok(())
 }
 ```
+
+The existing `create_completion(request)` call and
+`request.options.thinking = Some(json!(...))` field remain supported.
+`ThinkingPreference` provides typed default, enabled, budgeted, disabled, and
+provider-defined states without changing the provider wire payload.
+
+### Middleware, Retry, And Metadata
+
+Existing `create_completion` calls remain unchanged. Add the optional middleware wrapper
+when an application needs stable `v1` hooks, classified retry, or response metadata:
+
+```rust
+use std::time::Duration;
+use vv_llm::{MiddlewareChatClient, RetryPolicy};
+
+let runtime = MiddlewareChatClient::new(client, vec![])?
+    .with_retry_policy(
+        RetryPolicy::new(3)
+            .with_base_delay(Duration::from_millis(250))
+            .with_total_timeout(Duration::from_secs(20)),
+    );
+
+let result = runtime.create_with_metadata(request).await?;
+println!("{}", result.response.content);
+println!(
+    "provider={:?} attempts={} latency_ms={:?}",
+    result.metadata.provider,
+    result.metadata.attempts,
+    result.metadata.latency_ms,
+);
+```
+
+`ErrorKind` separates authentication, rate limiting, network, timeout, invalid
+request, context length, content policy, missing model, provider internal,
+serialization, and configuration failures. Retry runs in the middleware layer,
+outside provider adapters.
+
+### Explicit Registry And Fallback
+
+`ProviderRegistry` has no automatic provider discovery. Callers register factories
+and capabilities, then provide an ordered list of `FallbackRoute` values.
+Incompatible routes are skipped before network I/O. Authentication and invalid
+request failures do not switch providers by default.
+
+Streaming can fall back only while establishing the provider stream or before its
+first visible chunk. Once a chunk is returned, later stream errors are propagated
+without replay.
 
 ### Settings-Based Client
 
@@ -72,7 +120,7 @@ async fn main() -> Result<(), vv_llm::VvLlmError> {
     let client = create_chat_client_from_resolved(resolved)?;
 
     let response = client
-        .create_completion(ChatRequest::new(
+        .create(ChatRequest::new(
             model,
             vec![Message::text(MessageRole::User, "hello")],
         ))
@@ -188,7 +236,7 @@ request.tools = vec![ChatTool::function(
     )];
 request.tool_choice = Some("required".to_string());
 
-let response = client.create_completion(request).await?;
+let response = client.create(request).await?;
 for call in response.tool_calls {
     println!("{} {}", call.name, call.arguments);
 }
@@ -322,6 +370,15 @@ Anthropic Bedrock endpoints are configured with `endpoint_type: "anthropic_bedro
 - **Retrieval clients** — OpenAI-compatible embeddings and custom JSON rerank
 - **Token counting** — local tiktoken fallback plus settings-aware token server/provider tokenizer calls
 - **Typed errors** — configuration, provider, HTTP, serialization, model, and endpoint errors
+- **Versioned middleware** — stable `v1` request, response, stream-start, and error hooks
+- **Retry executor** — classified transient retry with backoff, jitter, `Retry-After`, and total deadline
+- **Explicit fallback** — ordered provider registry routes filtered by model capabilities
+- **Scripted clients** — deterministic response, error, and stream scripts for conformance tests
+
+## Examples
+
+Cargo examples for typed thinking, streaming, middleware metadata, and explicit
+fallback are available in [`crates/vv-llm/examples/`](crates/vv-llm/examples/README.md).
 
 ## Utilities
 
@@ -338,7 +395,8 @@ use vv_llm::utilities::{
 | `count_tokens` | Count tokens with supported model tokenizers |
 | `count_tokens_with_settings` | Prefer configured token server and provider tokenizer endpoints, then fall back locally |
 | `count_message_tokens` | Count formatted text, image placeholders, and tools for chat requests |
-| `RetryPolicy` | Small retry metadata helper for callers that manage retries externally |
+| `RetryPolicy` | Backoff, jitter, retryable classification, and total-deadline policy |
+| `execute_with_retry` | Execute an async operation under a `RetryPolicy` |
 
 ## Project Structure
 

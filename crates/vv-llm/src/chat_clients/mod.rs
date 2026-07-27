@@ -16,6 +16,9 @@ pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatStreamDelta, VvLlmErr
 #[async_trait]
 pub trait ChatClient: Send + Sync {
     fn provider_name(&self) -> &'static str;
+    async fn create(&self, request: ChatRequest) -> Result<crate::ChatResponse, VvLlmError> {
+        self.create_completion(request).await
+    }
     async fn create_completion(
         &self,
         request: ChatRequest,

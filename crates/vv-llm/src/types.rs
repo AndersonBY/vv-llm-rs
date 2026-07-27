@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -21,6 +22,163 @@ pub enum BackendType {
     XAI,
     Xiaomi,
     Ernie,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StructuredOutputCapability {
+    #[default]
+    None,
+    JsonObject,
+    JsonSchema,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ThinkingCapability {
+    #[default]
+    Unknown,
+    Unsupported,
+    Configurable,
+    AlwaysEnabled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Modality {
+    Text,
+    Image,
+    Audio,
+    Video,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelCapabilities {
+    #[serde(default)]
+    pub tools: bool,
+    #[serde(default)]
+    pub structured_output: StructuredOutputCapability,
+    #[serde(default = "default_input_modalities")]
+    pub input_modalities: HashSet<Modality>,
+    #[serde(default = "default_output_modalities")]
+    pub output_modalities: HashSet<Modality>,
+    #[serde(default = "default_true")]
+    pub streaming: bool,
+    #[serde(default)]
+    pub parallel_tool_calls: bool,
+    #[serde(default)]
+    pub thinking: ThinkingCapability,
+}
+
+impl Default for ModelCapabilities {
+    fn default() -> Self {
+        Self {
+            tools: false,
+            structured_output: StructuredOutputCapability::None,
+            input_modalities: default_input_modalities(),
+            output_modalities: default_output_modalities(),
+            streaming: true,
+            parallel_tool_calls: false,
+            thinking: ThinkingCapability::Unknown,
+        }
+    }
+}
+
+impl ModelCapabilities {
+    pub fn validate_request(&self, request: &ChatRequest) -> Result<(), VvLlmError> {
+        let mut conflicts = Vec::new();
+        if !request.tools.is_empty() && !self.tools {
+            conflicts.push("the model does not support tools");
+        }
+        if request.options.response_format.is_some()
+            && self.structured_output == StructuredOutputCapability::None
+        {
+            conflicts.push("the model does not support structured output");
+        }
+        if request.options.stream == Some(true) && !self.streaming {
+            conflicts.push("the model does not support streaming");
+        }
+        if request.messages.iter().any(|message| {
+            message
+                .content
+                .iter()
+                .any(|content| matches!(content, MessageContent::ImageUrl { .. }))
+        }) && !self.input_modalities.contains(&Modality::Image)
+        {
+            conflicts.push("the model does not support image input");
+        }
+        if let Some(thinking) = &request.options.thinking {
+            match self.thinking {
+                ThinkingCapability::Unsupported => {
+                    conflicts.push("the model does not support thinking controls")
+                }
+                ThinkingCapability::Unknown => {
+                    conflicts.push("the model's thinking capability is unknown")
+                }
+                ThinkingCapability::AlwaysEnabled
+                    if thinking.get("type").and_then(serde_json::Value::as_str)
+                        == Some("disabled") =>
+                {
+                    conflicts.push("thinking is always enabled for this model")
+                }
+                _ => {}
+            }
+        }
+        if conflicts.is_empty() {
+            Ok(())
+        } else {
+            Err(VvLlmError::Configuration(conflicts.join("; ")))
+        }
+    }
+}
+
+fn default_input_modalities() -> HashSet<Modality> {
+    HashSet::from([Modality::Text])
+}
+
+fn default_output_modalities() -> HashSet<Modality> {
+    HashSet::from([Modality::Text])
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ThinkingPreference {
+    Default,
+    Enabled { budget_tokens: Option<u32> },
+    Disabled,
+    ProviderDefined(serde_json::Value),
+}
+
+impl ThinkingPreference {
+    pub fn enabled() -> Self {
+        Self::Enabled {
+            budget_tokens: None,
+        }
+    }
+
+    pub fn enabled_with_budget(budget_tokens: u32) -> Self {
+        Self::Enabled {
+            budget_tokens: Some(budget_tokens),
+        }
+    }
+
+    pub fn into_provider_value(self) -> Option<serde_json::Value> {
+        match self {
+            Self::Default => None,
+            Self::Enabled { budget_tokens } => {
+                let mut value = serde_json::json!({"type": "enabled"});
+                if let Some(budget_tokens) = budget_tokens {
+                    value["budget_tokens"] = serde_json::json!(budget_tokens);
+                }
+                Some(value)
+            }
+            Self::Disabled => Some(serde_json::json!({"type": "disabled"})),
+            Self::ProviderDefined(value) => Some(value),
+        }
+    }
 }
 
 impl BackendType {
@@ -207,6 +365,11 @@ pub struct ChatRequestOptions {
 }
 
 impl ChatRequestOptions {
+    pub fn with_thinking(mut self, preference: ThinkingPreference) -> Self {
+        self.thinking = preference.into_provider_value();
+        self
+    }
+
     pub fn has_openai_json_extensions(&self) -> bool {
         self.max_completion_tokens.is_some()
             || self.top_p.is_some()
@@ -257,6 +420,11 @@ impl ChatRequest {
             tool_choice: None,
             extra_body: serde_json::Value::Null,
         }
+    }
+
+    pub fn with_thinking(mut self, preference: ThinkingPreference) -> Self {
+        self.options = self.options.with_thinking(preference);
+        self
     }
 }
 
@@ -330,6 +498,50 @@ pub struct ChatResponse {
     pub usage: Option<ChatUsage>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
+    #[serde(default = "default_attempts")]
+    pub attempts: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<f64>,
+    #[serde(default)]
+    pub fallback_index: usize,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub attributes: HashMap<String, serde_json::Value>,
+}
+
+impl Default for ResponseMetadata {
+    fn default() -> Self {
+        Self {
+            provider: None,
+            model: None,
+            response_id: None,
+            request_id: None,
+            finish_reason: None,
+            attempts: 1,
+            latency_ms: None,
+            fallback_index: 0,
+            attributes: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CompletionResult<Response> {
+    pub response: Response,
+    pub metadata: ResponseMetadata,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ChatStreamDelta {
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -370,6 +582,10 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+fn default_attempts() -> u32 {
+    1
+}
+
 fn is_empty_extra_body(value: &serde_json::Value) -> bool {
     match value {
         serde_json::Value::Null => true,
@@ -401,6 +617,82 @@ pub struct RerankResult {
     pub relevance_score: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorKind {
+    Authentication,
+    RateLimited,
+    Network,
+    Timeout,
+    InvalidRequest,
+    ContextLength,
+    ContentPolicy,
+    ModelNotFound,
+    ProviderInternal,
+    Serialization,
+    Configuration,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ErrorDetails {
+    pub kind: ErrorKind,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
+
+impl ErrorDetails {
+    pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            provider: None,
+            model: None,
+            status_code: None,
+            provider_code: None,
+            retry_after_seconds: None,
+            request_id: None,
+        }
+    }
+
+    pub fn with_provider(mut self, provider: impl Into<String>) -> Self {
+        self.provider = Some(provider.into());
+        self
+    }
+
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = Some(model.into());
+        self
+    }
+
+    pub fn with_status_code(mut self, status_code: u16) -> Self {
+        self.status_code = Some(status_code);
+        self
+    }
+
+    pub fn with_retry_after(mut self, seconds: f64) -> Self {
+        self.retry_after_seconds = Some(seconds.max(0.0));
+        self
+    }
+}
+
+impl std::fmt::Display for ErrorDetails {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum VvLlmError {
     #[error("configuration error: {0}")]
@@ -415,4 +707,132 @@ pub enum VvLlmError {
     Http(String),
     #[error("provider error: {0}")]
     Provider(String),
+    #[error("{0}")]
+    Classified(Box<ErrorDetails>),
+}
+
+impl VvLlmError {
+    pub fn classified(kind: ErrorKind, message: impl Into<String>) -> Self {
+        Self::Classified(Box::new(ErrorDetails::new(kind, message)))
+    }
+
+    pub fn from_status(status_code: u16, message: impl Into<String>) -> Self {
+        let message = message.into();
+        let kind = classify_status(status_code, &message);
+        Self::Classified(Box::new(
+            ErrorDetails::new(kind, message).with_status_code(status_code),
+        ))
+    }
+
+    pub fn kind(&self) -> ErrorKind {
+        match self {
+            Self::Configuration(_) | Self::EndpointNotFound(_) => ErrorKind::Configuration,
+            Self::ModelNotFound { .. } => ErrorKind::ModelNotFound,
+            Self::Serialization(_) => ErrorKind::Serialization,
+            Self::Http(message) => classify_legacy_http_error(message),
+            Self::Provider(message) => classify_legacy_provider_error(message),
+            Self::Classified(details) => details.kind,
+        }
+    }
+
+    pub fn retryable(&self) -> bool {
+        matches!(
+            self.kind(),
+            ErrorKind::RateLimited
+                | ErrorKind::Network
+                | ErrorKind::Timeout
+                | ErrorKind::ProviderInternal
+        )
+    }
+
+    pub fn retry_after_seconds(&self) -> Option<f64> {
+        match self {
+            Self::Classified(details) => details.retry_after_seconds,
+            _ => None,
+        }
+    }
+}
+
+fn classify_status(status_code: u16, message: &str) -> ErrorKind {
+    let normalized = message.to_ascii_lowercase();
+    match status_code {
+        401 | 403 => ErrorKind::Authentication,
+        404 => ErrorKind::ModelNotFound,
+        429 => ErrorKind::RateLimited,
+        400..=499 if is_context_length(&normalized) => ErrorKind::ContextLength,
+        400..=499 if is_content_policy(&normalized) => ErrorKind::ContentPolicy,
+        400..=499 => ErrorKind::InvalidRequest,
+        500..=599 => ErrorKind::ProviderInternal,
+        _ => ErrorKind::Unknown,
+    }
+}
+
+fn classify_legacy_http_error(message: &str) -> ErrorKind {
+    let normalized = message.to_ascii_lowercase();
+    if normalized.contains("timeout") || normalized.contains("timed out") {
+        ErrorKind::Timeout
+    } else {
+        ErrorKind::Network
+    }
+}
+
+fn classify_legacy_provider_error(message: &str) -> ErrorKind {
+    let normalized = message.to_ascii_lowercase();
+    if contains_status(&normalized, 401)
+        || contains_status(&normalized, 403)
+        || normalized.contains("unauthorized")
+        || normalized.contains("authentication")
+        || normalized.contains("invalid api key")
+    {
+        ErrorKind::Authentication
+    } else if contains_status(&normalized, 429)
+        || normalized.contains("rate limit")
+        || normalized.contains("too many requests")
+    {
+        ErrorKind::RateLimited
+    } else if contains_status(&normalized, 404)
+        || normalized.contains("model not found")
+        || normalized.contains("model_not_found")
+    {
+        ErrorKind::ModelNotFound
+    } else if is_context_length(&normalized) {
+        ErrorKind::ContextLength
+    } else if is_content_policy(&normalized) {
+        ErrorKind::ContentPolicy
+    } else if contains_status(&normalized, 400)
+        || normalized.contains("invalid request")
+        || normalized.contains("bad request")
+    {
+        ErrorKind::InvalidRequest
+    } else if normalized.contains("timeout") || normalized.contains("timed out") {
+        ErrorKind::Timeout
+    } else if normalized.contains("connection")
+        || normalized.contains("network")
+        || normalized.contains("dns")
+    {
+        ErrorKind::Network
+    } else {
+        ErrorKind::ProviderInternal
+    }
+}
+
+fn contains_status(message: &str, status: u16) -> bool {
+    let status = status.to_string();
+    message
+        .split(|character: char| !character.is_ascii_digit())
+        .any(|part| part == status)
+}
+
+fn is_context_length(message: &str) -> bool {
+    message.contains("context")
+        && (message.contains("length")
+            || message.contains("token limit")
+            || message.contains("too many tokens"))
+}
+
+fn is_content_policy(message: &str) -> bool {
+    message.contains("content")
+        && (message.contains("policy")
+            || message.contains("filter")
+            || message.contains("moderation"))
 }

@@ -48,7 +48,11 @@ Public request and response structs should stay provider-neutral. Provider-speci
 - `BackendType` identifies chat backends known by settings resolution and factory routing.
 - `Message`, `MessageRole`, and `MessageContent` represent text, image URL, assistant tool-call turns, and tool-result turns.
 - `ChatRequest` carries model, messages, options (including explicit thinking configuration), tools, and tool choice.
+- `ThinkingPreference` maps typed default/enabled/budgeted/disabled/provider-defined intent into the existing optional provider JSON field, preserving source and wire compatibility.
+- `ModelCapabilities` describes provider-neutral tools, structured-output, modality, streaming, and thinking support. `ModelConfig::capabilities()` reads explicit catalog metadata and derives legacy fields when metadata is absent.
 - `ChatResponse` carries normalized content, tool calls, and usage.
+- `CompletionResult<Response>` adds execution metadata without changing the legacy `ChatResponse` struct.
+- `ResponseMetadata` records provider, model, response/request ids, attempts, latency, fallback index, and extensible attributes.
 - `ChatStreamDelta` carries streaming text, reasoning text, tool-call deltas, usage, optional raw content, and a `done` marker.
 - `ChatUsage` preserves the legacy prompt/completion/total counters plus optional input/output, cache read/cache creation, and raw provider usage. Missing optional counters remain distinct from explicitly reported zeroes.
 - `EmbeddingResponse` and `RerankResponse` keep retrieval clients independent from provider payloads.
@@ -104,6 +108,26 @@ Resolution rules:
 
 Keep this routing explicit. Do not infer special transports from URL substrings when settings metadata is available.
 
+## Execution Pipeline
+
+Provider adapters only translate protocols. Cross-provider execution behavior is
+layered above them:
+
+1. `ChatRequest` is normalized and checked against `ModelCapabilities`.
+2. `ChatMiddlewareV1` hooks run in an explicitly versioned chain.
+3. `MiddlewareChatClient` invokes the provider client through `RetryPolicy`.
+4. `CompletionResult` can expose execution metadata without changing legacy responses.
+5. `FallbackChatClient` may try the next explicitly registered route only for allowed error kinds.
+
+`ProviderRegistry` never discovers providers automatically. A registration owns a
+client factory and declared capabilities. `FallbackRoute` supplies an ordered
+provider/model pair. Unsupported tools, structured output, streaming, thinking,
+or image input disqualify a route before its factory is called.
+
+Streaming retry and fallback stop at the first visible chunk. Establishment errors
+and an error received as the first stream item may select another route; errors
+after output begins are propagated without replay.
+
 ## Adapter Boundaries
 
 Provider adapters own these translations:
@@ -147,4 +171,10 @@ Utilities are deliberately small:
 - `count_tokens` uses `tiktoken-rs` for supported OpenAI-family encodings and falls back deterministically for unknown models.
 - `count_tokens_with_settings` matches the Python utility behavior by preferring a configured token server, then provider tokenizer endpoints for providers that expose one, then local fallback.
 - `count_message_tokens`, `calculate_image_tokens`, and `cutoff_messages` mirror the Python chat request sizing helpers.
-- `RetryPolicy` stores retry metadata for callers that own retry loops.
+- `RetryPolicy` and `execute_with_retry` provide classified async retry with exponential backoff, jitter, `Retry-After`, and an optional total deadline.
+
+## Test Doubles
+
+`ScriptedChatClient` consumes explicit completion and stream steps and records
+normalized requests. It is a public deterministic test double for middleware,
+retry, and fallback conformance; it does not emulate provider wire protocols.

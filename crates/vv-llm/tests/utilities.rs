@@ -400,6 +400,95 @@ fn retry_policy_never_allows_zero_attempts() {
 }
 
 #[test]
+fn retry_policy_classifies_legacy_and_structured_errors() {
+    use vv_llm::{ErrorDetails, ErrorKind, VvLlmError};
+
+    let policy = RetryPolicy::new(3);
+    assert!(policy.should_retry(&VvLlmError::Http("offline".to_string()), 1));
+    assert!(!policy.should_retry(&VvLlmError::Configuration("bad".to_string()), 1));
+    assert!(!policy.should_retry(
+        &VvLlmError::Classified(Box::new(ErrorDetails::new(
+            ErrorKind::Authentication,
+            "unauthorized",
+        ))),
+        1,
+    ));
+}
+
+#[test]
+fn legacy_provider_errors_keep_auth_and_rate_limits_distinct() {
+    use vv_llm::{ErrorKind, VvLlmError};
+
+    assert_eq!(
+        VvLlmError::Provider("401 Unauthorized: invalid API key".to_string()).kind(),
+        ErrorKind::Authentication,
+    );
+    assert_eq!(
+        VvLlmError::Provider("status 429 Too Many Requests".to_string()).kind(),
+        ErrorKind::RateLimited,
+    );
+    assert_eq!(
+        VvLlmError::Http("request timed out".to_string()).kind(),
+        ErrorKind::Timeout,
+    );
+    assert_eq!(
+        VvLlmError::from_status(400, "maximum context length exceeded").kind(),
+        ErrorKind::ContextLength,
+    );
+}
+
+#[tokio::test]
+async fn retry_executor_retries_transient_errors() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::Duration;
+    use vv_llm::{execute_with_retry, ErrorDetails, ErrorKind, VvLlmError};
+
+    let attempts = AtomicU32::new(0);
+    let result = execute_with_retry(
+        || async {
+            let attempt = attempts.fetch_add(1, Ordering::SeqCst) + 1;
+            if attempt < 3 {
+                Err(VvLlmError::Classified(Box::new(
+                    ErrorDetails::new(ErrorKind::RateLimited, "slow down").with_retry_after(0.0),
+                )))
+            } else {
+                Ok("ok")
+            }
+        },
+        RetryPolicy::new(3)
+            .with_max_delay(Duration::ZERO)
+            .with_jitter_ratio(0.0),
+    )
+    .await;
+
+    assert_eq!(result.unwrap(), "ok");
+    assert_eq!(attempts.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn retry_executor_does_not_retry_authentication_errors() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use vv_llm::{execute_with_retry, ErrorKind, VvLlmError};
+
+    let attempts = AtomicU32::new(0);
+    let error = execute_with_retry(
+        || async {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Err::<(), _>(VvLlmError::classified(
+                ErrorKind::Authentication,
+                "unauthorized",
+            ))
+        },
+        RetryPolicy::new(3),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::Authentication);
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn normalization_does_not_merge_different_roles_or_images() {
     let messages = vec![
         Message::text(MessageRole::User, "hello"),

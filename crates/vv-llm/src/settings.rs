@@ -1,4 +1,7 @@
-use crate::{default_chat_backends, BackendType, VvLlmError};
+use crate::{
+    default_chat_backends, BackendType, Modality, ModelCapabilities, StructuredOutputCapability,
+    VvLlmError,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{collections::HashMap, fs, path::Path};
@@ -115,6 +118,30 @@ pub struct ModelConfig {
     pub response_mapping: Option<Value>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+impl ModelConfig {
+    pub fn capabilities(&self) -> ModelCapabilities {
+        if let Some(value) = self.extra.get("capabilities") {
+            if let Ok(capabilities) = serde_json::from_value(value.clone()) {
+                return capabilities;
+            }
+        }
+
+        let mut capabilities = ModelCapabilities {
+            tools: self.function_call_available.unwrap_or(false),
+            structured_output: if self.response_format_available.unwrap_or(false) {
+                StructuredOutputCapability::JsonSchema
+            } else {
+                StructuredOutputCapability::None
+            },
+            ..Default::default()
+        };
+        if self.native_multimodal.unwrap_or(false) {
+            capabilities.input_modalities.insert(Modality::Image);
+        }
+        capabilities
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -358,6 +385,11 @@ fn merge_backend_config(
 }
 
 fn merge_model_config(mut default_model: ModelConfig, user_model: ModelConfig) -> ModelConfig {
+    let user_function_call_available = user_model.function_call_available;
+    let user_response_format_available = user_model.response_format_available;
+    let user_native_multimodal = user_model.native_multimodal;
+    let user_has_capabilities = user_model.extra.contains_key("capabilities");
+
     default_model.id = user_model.id;
     default_model.enabled = user_model.enabled;
     if !user_model.endpoints.is_empty() {
@@ -394,6 +426,34 @@ fn merge_model_config(mut default_model: ModelConfig, user_model: ModelConfig) -
         default_model.response_mapping = user_model.response_mapping;
     }
     default_model.extra.extend(user_model.extra);
+    if !user_has_capabilities {
+        if let Some(value) = default_model.extra.get("capabilities").cloned() {
+            if let Ok(mut capabilities) = serde_json::from_value::<ModelCapabilities>(value) {
+                if let Some(available) = user_function_call_available {
+                    capabilities.tools = available;
+                }
+                if let Some(available) = user_response_format_available {
+                    capabilities.structured_output = if available {
+                        StructuredOutputCapability::JsonSchema
+                    } else {
+                        StructuredOutputCapability::None
+                    };
+                }
+                if let Some(available) = user_native_multimodal {
+                    if available {
+                        capabilities.input_modalities.insert(Modality::Image);
+                    } else {
+                        capabilities.input_modalities.remove(&Modality::Image);
+                    }
+                }
+                if let Ok(value) = serde_json::to_value(capabilities) {
+                    default_model
+                        .extra
+                        .insert("capabilities".to_string(), value);
+                }
+            }
+        }
+    }
     default_model
 }
 

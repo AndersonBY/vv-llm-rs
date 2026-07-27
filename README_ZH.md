@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-vv-llm = "0.4.5"
+vv-llm = "0.4.7"
 ```
 
 包已经发布到官方 crates.io，名称是 `vv-llm`，Rust 代码中以 `vv_llm` 导入。本仓库本地开发时可以使用 `vv-llm = { path = "crates/vv-llm" }`。
@@ -44,13 +44,58 @@ async fn main() -> Result<(), vv_llm::VvLlmError> {
         vec![Message::text(MessageRole::User, "用一句话解释 RAG。")],
     );
     request.options.max_tokens = Some(128);
+    request = request.with_thinking(vv_llm::ThinkingPreference::Disabled);
 
-    let response = client.create_completion(request).await?;
+    let response = client.create(request).await?;
 
     println!("{}", response.content);
     Ok(())
 }
 ```
+
+现有的 `create_completion(request)` 调用和
+`request.options.thinking = Some(json!(...))` 字段仍然兼容。
+`ThinkingPreference` 在不改变 provider 线上 payload 的前提下，提供类型化的默认、开启、
+带预算开启、关闭和 provider 自定义状态。
+
+### Middleware、重试与 Metadata
+
+现有 `create_completion` 调用保持不变。应用需要稳定的 `v1` hook、分类重试或响应 metadata
+时，再增加可选包装器：
+
+```rust
+use std::time::Duration;
+use vv_llm::{MiddlewareChatClient, RetryPolicy};
+
+let runtime = MiddlewareChatClient::new(client, vec![])?
+    .with_retry_policy(
+        RetryPolicy::new(3)
+            .with_base_delay(Duration::from_millis(250))
+            .with_total_timeout(Duration::from_secs(20)),
+    );
+
+let result = runtime.create_with_metadata(request).await?;
+println!("{}", result.response.content);
+println!(
+    "provider={:?} attempts={} latency_ms={:?}",
+    result.metadata.provider,
+    result.metadata.attempts,
+    result.metadata.latency_ms,
+);
+```
+
+`ErrorKind` 统一区分认证、限流、网络、超时、无效请求、上下文长度、内容策略、
+模型不存在、provider 内部错误、序列化和配置错误。重试位于 middleware 层，
+不会进入 provider adapter。
+
+### 显式 Registry 与 Fallback
+
+`ProviderRegistry` 不会自动发现 provider。调用方显式注册 factory 和 capabilities，
+再提供有顺序的 `FallbackRoute`。不兼容 route 会在网络请求前跳过。认证和无效请求
+错误默认不会切换 provider。
+
+流式调用只能在建立 provider stream 或首个可见 chunk 之前 fallback。一旦返回 chunk，
+后续 stream 错误会直接向上传播，不会重放。
 
 ### 通过 Settings 创建 Client
 
@@ -69,7 +114,7 @@ async fn main() -> Result<(), vv_llm::VvLlmError> {
     let client = create_chat_client_from_resolved(resolved)?;
 
     let response = client
-        .create_completion(ChatRequest::new(
+        .create(ChatRequest::new(
             model,
             vec![Message::text(MessageRole::User, "hello")],
         ))
@@ -185,7 +230,7 @@ request.tools = vec![ChatTool::function(
     )];
 request.tool_choice = Some("required".to_string());
 
-let response = client.create_completion(request).await?;
+let response = client.create(request).await?;
 for call in response.tool_calls {
     println!("{} {}", call.name, call.arguments);
 }
@@ -313,6 +358,15 @@ Anthropic Bedrock endpoint 使用 `endpoint_type: "anthropic_bedrock"`，并配�
 - **检索客户端** — OpenAI-compatible embedding 与自定义 JSON rerank
 - **Token 统计** — 本地 tiktoken fallback，以及基于 settings 的 token server/provider tokenizer 调用
 - **类型化错误** — configuration、provider、HTTP、serialization、model、endpoint 等错误类型
+- **版本化 middleware** — 稳定的 `v1` 请求、响应、stream-start 和错误 hook
+- **Retry executor** — 分类瞬时错误、退避、抖动、`Retry-After` 和总 deadline
+- **显式 fallback** — 按模型 capabilities 过滤的有序 provider registry route
+- **Scripted client** — 用确定性的响应、错误和 stream 脚本做契约测试
+
+## 使用示例
+
+[`crates/vv-llm/examples/`](crates/vv-llm/examples/README.md) 提供类型化 thinking、
+流式输出、middleware metadata 和显式 fallback 的 Cargo 示例。
 
 ## 工具函数
 
@@ -329,7 +383,8 @@ use vv_llm::utilities::{
 | `count_tokens` | 使用支持的模型 tokenizer 统计 token |
 | `count_tokens_with_settings` | 优先使用已配置的 token server 和 provider tokenizer endpoint，然后回退到本地计数 |
 | `count_message_tokens` | 统计 chat request 中的文本、图片占位和工具 token |
-| `RetryPolicy` | 给调用方使用的轻量 retry 元数据 helper |
+| `RetryPolicy` | 退避、抖动、可重试分类和总 deadline 策略 |
+| `execute_with_retry` | 使用 `RetryPolicy` 执行异步操作 |
 
 ## 目录结构
 

@@ -1,5 +1,6 @@
 use vv_llm::{
-    BackendType, ChatRequest, ChatStreamDelta, ChatUsage, Message, MessageRole, ToolCall,
+    BackendType, ChatRequest, ChatRequestOptions, ChatStreamDelta, ChatUsage, Message, MessageRole,
+    ThinkingPreference, ToolCall,
 };
 
 #[test]
@@ -36,6 +37,32 @@ fn public_api_exposes_normalized_stream_delta_type() {
     assert_eq!(delta.tool_calls[0].name, "lookup");
     assert_eq!(delta.raw_content.unwrap()["provider"], "unit");
     assert!(!delta.done);
+}
+
+#[test]
+fn typed_thinking_preferences_preserve_legacy_wire_values() {
+    let default_options = ChatRequestOptions::default().with_thinking(ThinkingPreference::Default);
+    assert_eq!(default_options.thinking, None);
+
+    let enabled =
+        ChatRequestOptions::default().with_thinking(ThinkingPreference::enabled_with_budget(4096));
+    assert_eq!(
+        enabled.thinking,
+        Some(serde_json::json!({
+            "type": "enabled",
+            "budget_tokens": 4096
+        }))
+    );
+
+    let request = ChatRequest::new(
+        "deepseek-v4-flash",
+        vec![Message::text(MessageRole::User, "hello")],
+    )
+    .with_thinking(ThinkingPreference::Disabled);
+    assert_eq!(
+        request.options.thinking,
+        Some(serde_json::json!({"type": "disabled"}))
+    );
 }
 
 #[test]
