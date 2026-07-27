@@ -750,6 +750,9 @@ fn merge_openai_option_extensions(json: &mut Value, options: &crate::ChatRequest
     if let Some(reasoning_effort) = &options.reasoning_effort {
         target.insert("reasoning_effort".to_string(), json!(reasoning_effort));
     }
+    if let Some(thinking) = &options.thinking {
+        target.insert("thinking".to_string(), thinking.clone());
+    }
     if let Some(seed) = options.seed {
         target.insert("seed".to_string(), json!(seed));
     }

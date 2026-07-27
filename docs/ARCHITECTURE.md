@@ -47,7 +47,7 @@ Public request and response structs should stay provider-neutral. Provider-speci
 
 - `BackendType` identifies chat backends known by settings resolution and factory routing.
 - `Message`, `MessageRole`, and `MessageContent` represent text, image URL, assistant tool-call turns, and tool-result turns.
-- `ChatRequest` carries model, messages, options, tools, and tool choice.
+- `ChatRequest` carries model, messages, options (including explicit thinking configuration), tools, and tool choice.
 - `ChatResponse` carries normalized content, tool calls, and usage.
 - `ChatStreamDelta` carries streaming text, reasoning text, tool-call deltas, usage, optional raw content, and a `done` marker.
 - `ChatUsage` preserves the legacy prompt/completion/total counters plus optional input/output, cache read/cache creation, and raw provider usage. Missing optional counters remain distinct from explicitly reported zeroes.

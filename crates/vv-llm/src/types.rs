@@ -193,6 +193,8 @@ pub struct ChatRequestOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<String>,
@@ -222,6 +224,7 @@ impl ChatRequestOptions {
             || self.prediction.is_some()
             || self.presence_penalty.is_some()
             || self.reasoning_effort.is_some()
+            || self.thinking.is_some()
             || self.seed.is_some()
             || self.service_tier.is_some()
             || self.store.is_some()

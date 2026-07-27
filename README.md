@@ -204,6 +204,7 @@ keeps these in typed, provider-neutral fields so callers do not have to
 hand-roll protocol conversion:
 
 - `ChatRequest.extra_body` merges object fields into the root request JSON.
+- `ChatRequestOptions::thinking` forwards an explicit enabled, disabled, or adaptive thinking configuration to supported provider adapters.
 - `Message.reasoning_content` preserves assistant reasoning content on request messages.
 - `MessageContent::Text.cache_control` and `ChatTool.cache_control` preserve Anthropic prompt-cache breakpoints.
 - `ToolCall.extra_content` preserves vendor tool-call metadata such as Google thought signatures.

@@ -268,6 +268,7 @@ fn openai_compatible_adapter_maps_python_style_chat_options() {
             prediction: Some(serde_json::json!({"type": "content", "content": "done"})),
             presence_penalty: Some(0.3),
             reasoning_effort: Some("medium".to_string()),
+            thinking: Some(serde_json::json!({"type": "disabled"})),
             seed: Some(1234),
             service_tier: Some("default".to_string()),
             store: Some(false),
@@ -312,6 +313,7 @@ fn openai_compatible_adapter_maps_python_style_chat_options() {
     );
     assert!((json["presence_penalty"].as_f64().unwrap() - 0.3).abs() < 0.000_001);
     assert_eq!(json["reasoning_effort"], "medium");
+    assert_eq!(json["thinking"], serde_json::json!({"type": "disabled"}));
     assert_eq!(json["seed"], 1234);
     assert_eq!(json["service_tier"], "default");
     assert_eq!(json["store"], false);
@@ -490,6 +492,7 @@ fn anthropic_adapter_maps_python_style_chat_options() {
             max_tokens: Some(128),
             top_p: Some(0.8),
             stop: vec!["END".to_string(), "DONE".to_string()],
+            thinking: Some(serde_json::json!({"type": "enabled", "budget_tokens": 16000})),
             ..Default::default()
         },
         tools: Vec::new(),
@@ -501,6 +504,10 @@ fn anthropic_adapter_maps_python_style_chat_options() {
 
     assert!((json["top_p"].as_f64().unwrap() - 0.8).abs() < 0.000_001);
     assert_eq!(json["stop_sequences"], serde_json::json!(["END", "DONE"]));
+    assert_eq!(
+        json["thinking"],
+        serde_json::json!({"type": "enabled", "budget_tokens": 16000})
+    );
 }
 
 #[test]
@@ -1500,6 +1507,7 @@ async fn anthropic_direct_completion_uses_json_path_for_cache_control_and_tools(
             }],
             options: ChatRequestOptions {
                 max_tokens: Some(128),
+                thinking: Some(serde_json::json!({"type": "enabled", "budget_tokens": 16000})),
                 ..Default::default()
             },
             tools: vec![ChatTool::function(
@@ -1509,9 +1517,7 @@ async fn anthropic_direct_completion_uses_json_path_for_cache_control_and_tools(
             )
             .with_cache_control(serde_json::json!({"type": "ephemeral"}))],
             tool_choice: None,
-            extra_body: serde_json::json!({
-                "thinking": {"type": "enabled", "budget_tokens": 16000}
-            }),
+            extra_body: serde_json::Value::Null,
         })
         .await
         .unwrap();

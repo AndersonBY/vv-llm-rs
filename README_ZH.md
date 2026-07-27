@@ -198,6 +198,7 @@ for call in response.tool_calls {
 OpenAI-compatible provider 经常会暴露额外的请求 / 响应字段，用于 reasoning trace、thinking 控制或供应商专有工具元数据。`vv-llm` 把这些能力放在 provider-neutral 的类型化字段里，调用方不需要自己手写协议转换：
 
 - `ChatRequest.extra_body` 会把对象字段合并到请求 JSON 根层。
+- `ChatRequestOptions::thinking` 会把显式的启用、关闭或自适应 thinking 配置传给支持该能力的 provider adapter。
 - `Message.reasoning_content` 会保留 assistant 历史消息里的 reasoning 内容。
 - `MessageContent::Text.cache_control` 和 `ChatTool.cache_control` 会保留 Anthropic prompt-cache 断点。
 - `ToolCall.extra_content` 会保留供应商工具调用元数据，例如 Google thought signature。

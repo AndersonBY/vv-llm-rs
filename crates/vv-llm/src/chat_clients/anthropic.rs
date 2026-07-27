@@ -528,6 +528,9 @@ fn to_anthropic_json(model: &str, request: &ChatRequest) -> Result<Value, VvLlmE
     } else if !request.tools.is_empty() {
         value["tool_choice"] = json!({"type": "auto"});
     }
+    if let Some(thinking) = &request.options.thinking {
+        value["thinking"] = thinking.clone();
+    }
     merge_extra_body(&mut value, &request.extra_body);
 
     Ok(value)
@@ -822,6 +825,7 @@ fn to_bedrock_tool_choice(choice: &str) -> Result<Option<bedrock::ToolChoice>, V
 fn request_needs_anthropic_json(request: &ChatRequest) -> bool {
     !request.tools.is_empty()
         || request.tool_choice.is_some()
+        || request.options.thinking.is_some()
         || !is_empty_extra_body(&request.extra_body)
         || request
             .messages
