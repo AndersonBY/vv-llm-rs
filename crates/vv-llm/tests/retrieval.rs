@@ -1,6 +1,6 @@
 use vv_llm::{
     embedding_clients::OpenAiCompatibleEmbeddingClient,
-    rerank_clients::{CustomJsonHttpRerankClient, RerankMapping},
+    rerank_clients::{CustomJsonHttpRerankClient, RerankClient, RerankMapping},
 };
 
 #[test]
@@ -68,4 +68,35 @@ fn custom_rerank_mapping_supports_custom_path_and_top_n() {
     assert_eq!(client.endpoint_url(), "https://example.com/v1/rank");
     assert_eq!(body["model"], "custom-rerank-id");
     assert_eq!(body["top_n"], 1);
+}
+
+#[tokio::test]
+async fn custom_rerank_error_preserves_retry_after_hint() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buffer = [0_u8; 2048];
+        let _ = socket.read(&mut buffer).await.unwrap();
+        let body = r#"{"error":"slow down"}"#;
+        let response = format!(
+            "HTTP/1.1 429 Too Many Requests\r\ncontent-type: application/json\r\nretry-after: 2.25\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let client = CustomJsonHttpRerankClient::new(
+        "rerank-model",
+        api_base,
+        "sk-test",
+        RerankMapping::default_siliconflow(),
+    );
+    let error = client.rerank("query", &["document"]).await.unwrap_err();
+    server.await.unwrap();
+
+    assert_eq!(error.kind(), vv_llm::ErrorKind::RateLimited);
+    assert_eq!(error.retry_after_seconds(), Some(2.25));
 }

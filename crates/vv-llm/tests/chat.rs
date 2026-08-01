@@ -1537,6 +1537,36 @@ async fn anthropic_direct_completion_uses_json_path_for_cache_control_and_tools(
 }
 
 #[tokio::test]
+async fn anthropic_direct_error_preserves_retry_after_hint() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let _request = read_http_request(&mut socket).await;
+        let body = r#"{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}"#;
+        let response = format!(
+            "HTTP/1.1 429 Too Many Requests\r\ncontent-type: application/json\r\nretry-after-ms: 1500\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        use tokio::io::AsyncWriteExt;
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let client = AnthropicChatClient::new("claude-sonnet-4-6", api_base, "sk-test");
+    let mut request = ChatRequest::new(
+        "claude-sonnet-4-6",
+        vec![Message::text(MessageRole::User, "hello")],
+    );
+    request.options.thinking = Some(serde_json::json!({"type": "disabled"}));
+    let error = client.create_completion(request).await.unwrap_err();
+    server.await.unwrap();
+
+    assert_eq!(error.kind(), vv_llm::ErrorKind::RateLimited);
+    assert_eq!(error.retry_after_seconds(), Some(1.5));
+}
+
+#[tokio::test]
 async fn chat_client_trait_supports_stream_return_type() {
     struct StaticStreamClient;
 

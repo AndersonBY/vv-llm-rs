@@ -1,6 +1,7 @@
 use crate::{RerankResponse, RerankResult, VvLlmError};
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use std::time::SystemTime;
 
 use super::RerankClient;
 
@@ -88,9 +89,23 @@ impl RerankClient for CustomJsonHttpRerankClient {
             .json(&self.build_request_body(query, documents)?)
             .send()
             .await
-            .map_err(|error| VvLlmError::Http(error.to_string()))?
-            .error_for_status()
-            .map_err(|error| VvLlmError::Http(error.to_string()))?
+            .map_err(|error| VvLlmError::Http(error.to_string()))?;
+        let status = response.status();
+        let retry_after =
+            crate::utilities::parse_retry_after_headers(response.headers(), SystemTime::now());
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .map_err(|error| VvLlmError::Http(error.to_string()))?;
+            return Err(VvLlmError::from_status_with_retry_after(
+                status.as_u16(),
+                body,
+                retry_after,
+            ));
+        }
+
+        let response = response
             .json::<Value>()
             .await
             .map_err(|error| VvLlmError::Http(error.to_string()))?;

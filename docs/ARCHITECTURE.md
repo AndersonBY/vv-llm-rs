@@ -171,7 +171,7 @@ Utilities are deliberately small:
 - `count_tokens` uses `tiktoken-rs` for supported OpenAI-family encodings and falls back deterministically for unknown models.
 - `count_tokens_with_settings` matches the Python utility behavior by preferring a configured token server, then provider tokenizer endpoints for providers that expose one, then local fallback.
 - `count_message_tokens`, `calculate_image_tokens`, and `cutoff_messages` mirror the Python chat request sizing helpers.
-- `RetryPolicy` and `execute_with_retry` provide classified async retry with exponential backoff, jitter, `Retry-After`, and an optional total deadline.
+- `parse_retry_after` accepts provider `retry-after-ms` plus numeric or HTTP-date `Retry-After`; `RetryPolicy` and `execute_with_retry` consume the classified hint with exponential backoff, jitter, and an optional total deadline.
 
 ## Test Doubles
 

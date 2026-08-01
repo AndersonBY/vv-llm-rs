@@ -32,4 +32,4 @@ pub use types::{
     RerankResult, ResponseMetadata, StructuredOutputCapability, ThinkingCapability,
     ThinkingPreference, ToolCall, VvLlmError,
 };
-pub use utilities::{execute_with_retry, RetryPolicy};
+pub use utilities::{execute_with_retry, parse_retry_after, RetryPolicy};

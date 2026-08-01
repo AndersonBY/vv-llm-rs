@@ -6,6 +6,11 @@ Retry, middleware, registry lookup, fallback selection, and cross-provider
 capability filtering do not belong in provider adapters. Those behaviors are
 implemented by the provider-neutral execution layer.
 
+Direct HTTP adapters capture `retry-after-ms` and numeric or HTTP-date
+`Retry-After` before consuming the response body. The parsed duration is stored
+on `VvLlmError` for the provider-neutral retry layer; adapters do not sleep or
+retry requests themselves.
+
 ## OpenAI-Compatible Chat
 
 Module: `crates/vv-llm/src/chat_clients/openai_compatible.rs`

@@ -191,14 +191,18 @@ async fn parse_token_response(
     response: reqwest::Response,
 ) -> Result<GoogleAccessToken, VvLlmError> {
     let status = response.status();
+    let retry_after =
+        crate::utilities::parse_retry_after_headers(response.headers(), SystemTime::now());
     let body = response
         .text()
         .await
         .map_err(|error| VvLlmError::Http(error.to_string()))?;
     if !status.is_success() {
-        return Err(VvLlmError::Http(format!(
-            "Google token endpoint returned {status}: {body}"
-        )));
+        return Err(VvLlmError::from_status_with_retry_after(
+            status.as_u16(),
+            format!("Google token endpoint returned {status}: {body}"),
+            retry_after,
+        ));
     }
     let token: TokenResponse = serde_json::from_str(&body)?;
     Ok(GoogleAccessToken {

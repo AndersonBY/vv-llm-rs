@@ -19,6 +19,7 @@ use futures_util::{stream, StreamExt};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
+use std::time::SystemTime;
 
 use super::{ChatClient, ChatStream};
 
@@ -145,15 +146,21 @@ impl AnthropicChatClient {
             .await
             .map_err(|error| VvLlmError::Provider(error.to_string()))?;
         let status = response.status();
+        let retry_after =
+            crate::utilities::parse_retry_after_headers(response.headers(), SystemTime::now());
         let body = response
             .text()
             .await
             .map_err(|error| VvLlmError::Provider(error.to_string()))?;
-        let value = serde_json::from_str::<Value>(&body)?;
         if !status.is_success() {
-            return Err(VvLlmError::Provider(anthropic_error_message(&value)));
+            let value = serde_json::from_str::<Value>(&body).unwrap_or(Value::String(body));
+            return Err(VvLlmError::from_status_with_retry_after(
+                status.as_u16(),
+                anthropic_error_message(&value),
+                retry_after,
+            ));
         }
-        Ok(value)
+        Ok(serde_json::from_str::<Value>(&body)?)
     }
 
     async fn messages_json_stream(&self, request: Value) -> Result<ChatStream, VvLlmError> {
@@ -168,13 +175,19 @@ impl AnthropicChatClient {
             .await
             .map_err(|error| VvLlmError::Provider(error.to_string()))?;
         let status = response.status();
+        let retry_after =
+            crate::utilities::parse_retry_after_headers(response.headers(), SystemTime::now());
         if !status.is_success() {
             let body = response
                 .text()
                 .await
                 .map_err(|error| VvLlmError::Provider(error.to_string()))?;
             let value = serde_json::from_str::<Value>(&body).unwrap_or(Value::String(body));
-            return Err(VvLlmError::Provider(anthropic_error_message(&value)));
+            return Err(VvLlmError::from_status_with_retry_after(
+                status.as_u16(),
+                anthropic_error_message(&value),
+                retry_after,
+            ));
         }
         let bytes = response.bytes_stream();
         let state = AnthropicSseState::default();

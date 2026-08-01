@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -717,11 +718,21 @@ impl VvLlmError {
     }
 
     pub fn from_status(status_code: u16, message: impl Into<String>) -> Self {
+        Self::from_status_with_retry_after(status_code, message, None)
+    }
+
+    pub fn from_status_with_retry_after(
+        status_code: u16,
+        message: impl Into<String>,
+        retry_after: Option<Duration>,
+    ) -> Self {
         let message = message.into();
         let kind = classify_status(status_code, &message);
-        Self::Classified(Box::new(
-            ErrorDetails::new(kind, message).with_status_code(status_code),
-        ))
+        let mut details = ErrorDetails::new(kind, message).with_status_code(status_code);
+        if let Some(retry_after) = retry_after {
+            details = details.with_retry_after(retry_after.as_secs_f64());
+        }
+        Self::Classified(Box::new(details))
     }
 
     pub fn kind(&self) -> ErrorKind {

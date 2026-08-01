@@ -77,6 +77,47 @@ impl Default for RetryPolicy {
     }
 }
 
+pub fn parse_retry_after(
+    retry_after_ms: Option<&str>,
+    retry_after: Option<&str>,
+    now: SystemTime,
+) -> Option<Duration> {
+    if let Some(duration) = retry_after_ms.and_then(|value| parse_seconds(value, 0.001)) {
+        return Some(duration);
+    }
+
+    let value = retry_after?.trim();
+    if let Some(duration) = parse_seconds(value, 1.0) {
+        return Some(duration);
+    }
+
+    let retry_at = httpdate::parse_http_date(value).ok()?;
+    Some(retry_at.duration_since(now).unwrap_or(Duration::ZERO))
+}
+
+pub(crate) fn parse_retry_after_headers(
+    headers: &reqwest::header::HeaderMap,
+    now: SystemTime,
+) -> Option<Duration> {
+    parse_retry_after(
+        headers
+            .get("retry-after-ms")
+            .and_then(|value| value.to_str().ok()),
+        headers
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok()),
+        now,
+    )
+}
+
+fn parse_seconds(value: &str, scale: f64) -> Option<Duration> {
+    let seconds = value.trim().parse::<f64>().ok()? * scale;
+    if !seconds.is_finite() {
+        return None;
+    }
+    Some(Duration::from_secs_f64(seconds.max(0.0)))
+}
+
 pub async fn execute_with_retry<T, Operation, OperationFuture>(
     mut operation: Operation,
     policy: RetryPolicy,

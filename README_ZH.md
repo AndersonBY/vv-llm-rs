@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-vv-llm = "0.4.7"
+vv-llm = "0.4.8"
 ```
 
 包已经发布到官方 crates.io，名称是 `vv-llm`，Rust 代码中以 `vv_llm` 导入。本仓库本地开发时可以使用 `vv-llm = { path = "crates/vv-llm" }`。
@@ -85,8 +85,9 @@ println!(
 ```
 
 `ErrorKind` 统一区分认证、限流、网络、超时、无效请求、上下文长度、内容策略、
-模型不存在、provider 内部错误、序列化和配置错误。重试位于 middleware 层，
-不会进入 provider adapter。
+模型不存在、provider 内部错误、序列化和配置错误。直接 HTTP adapter 会把
+`retry-after-ms` 以及秒数或 HTTP-date 格式的 `Retry-After` 保留到分类错误中；
+重试执行仍位于 middleware 层。
 
 ### 显式 Registry 与 Fallback
 
@@ -383,6 +384,7 @@ use vv_llm::utilities::{
 | `count_tokens` | 使用支持的模型 tokenizer 统计 token |
 | `count_tokens_with_settings` | 优先使用已配置的 token server 和 provider tokenizer endpoint，然后回退到本地计数 |
 | `count_message_tokens` | 统计 chat request 中的文本、图片占位和工具 token |
+| `parse_retry_after` | 把 `retry-after-ms` 或秒数/HTTP-date `Retry-After` 解析为 `Duration` |
 | `RetryPolicy` | 退避、抖动、可重试分类和总 deadline 策略 |
 | `execute_with_retry` | 使用 `RetryPolicy` 执行异步操作 |
 

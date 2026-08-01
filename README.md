@@ -6,7 +6,7 @@ Universal LLM client layer for Rust. One typed API for chat, streaming, embeddin
 
 ```toml
 [dependencies]
-vv-llm = "0.4.7"
+vv-llm = "0.4.8"
 ```
 
 The crate is published on crates.io as `vv-llm`; Rust code imports it as `vv_llm`. For local development in this repository, use `vv-llm = { path = "crates/vv-llm" }`.
@@ -89,8 +89,9 @@ println!(
 
 `ErrorKind` separates authentication, rate limiting, network, timeout, invalid
 request, context length, content policy, missing model, provider internal,
-serialization, and configuration failures. Retry runs in the middleware layer,
-outside provider adapters.
+serialization, and configuration failures. Direct HTTP adapters preserve
+`retry-after-ms` and numeric or HTTP-date `Retry-After` hints on classified
+errors; retry execution remains in the middleware layer.
 
 ### Explicit Registry And Fallback
 
@@ -395,6 +396,7 @@ use vv_llm::utilities::{
 | `count_tokens` | Count tokens with supported model tokenizers |
 | `count_tokens_with_settings` | Prefer configured token server and provider tokenizer endpoints, then fall back locally |
 | `count_message_tokens` | Count formatted text, image placeholders, and tools for chat requests |
+| `parse_retry_after` | Parse `retry-after-ms` or numeric/HTTP-date `Retry-After` into a `Duration` |
 | `RetryPolicy` | Backoff, jitter, retryable classification, and total-deadline policy |
 | `execute_with_retry` | Execute an async operation under a `RetryPolicy` |
 
