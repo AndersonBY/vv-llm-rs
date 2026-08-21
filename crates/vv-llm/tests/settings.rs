@@ -397,6 +397,16 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
         .get("openai")
         .and_then(|backend| backend.models.get("gpt-5.6-luna"))
         .expect("gpt-5.6-luna should come from the Python default catalog");
+    let gemini_37_flash = settings
+        .backends
+        .get("gemini")
+        .and_then(|backend| backend.models.get("gemini-3.7-flash"))
+        .expect("gemini-3.7-flash should come from the Python default catalog");
+    let grok_46 = settings
+        .backends
+        .get("xai")
+        .and_then(|backend| backend.models.get("grok-4.6"))
+        .expect("grok-4.6 should come from the Python default catalog");
 
     assert_eq!(default_chat_model(BackendType::Moonshot), Some("kimi-k2.6"));
     assert_eq!(
@@ -468,6 +478,48 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
         assert_eq!(model.response_format_available, Some(true));
         assert_eq!(model.native_multimodal, Some(true));
     }
+    assert_eq!(gemini_37_flash.context_length, Some(1_048_576));
+    assert_eq!(gemini_37_flash.max_output_tokens, Some(65_536));
+    assert_eq!(gemini_37_flash.function_call_available, Some(true));
+    assert_eq!(gemini_37_flash.response_format_available, Some(true));
+    assert_eq!(gemini_37_flash.native_multimodal, Some(true));
+    let gemini_37_capabilities = gemini_37_flash.capabilities();
+    assert!(gemini_37_capabilities.tools);
+    assert_eq!(
+        gemini_37_capabilities.structured_output,
+        vv_llm::StructuredOutputCapability::JsonSchema
+    );
+    assert_eq!(
+        gemini_37_capabilities.thinking,
+        vv_llm::ThinkingCapability::Configurable
+    );
+    assert!(gemini_37_capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Image));
+    assert!(gemini_37_capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Video));
+    assert!(gemini_37_capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Audio));
+    assert_eq!(grok_46.context_length, Some(500_000));
+    assert_eq!(grok_46.max_output_tokens, None);
+    assert_eq!(grok_46.function_call_available, Some(true));
+    assert_eq!(grok_46.response_format_available, Some(true));
+    assert_eq!(grok_46.native_multimodal, Some(true));
+    let grok_46_capabilities = grok_46.capabilities();
+    assert!(grok_46_capabilities.tools);
+    assert_eq!(
+        grok_46_capabilities.structured_output,
+        vv_llm::StructuredOutputCapability::JsonSchema
+    );
+    assert_eq!(
+        grok_46_capabilities.thinking,
+        vv_llm::ThinkingCapability::Configurable
+    );
+    assert!(grok_46_capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Image));
 }
 
 #[test]
@@ -490,12 +542,118 @@ fn default_deepseek_catalog_exposes_typed_thinking_capabilities() {
     );
     assert_eq!(flash.thinking, vv_llm::ThinkingCapability::Configurable);
 
+    let vision = backend
+        .models
+        .get("deepseek-v4-flash-vision-exp")
+        .expect("deepseek-v4-flash-vision-exp should exist");
+    assert_eq!(vision.context_length, Some(1_000_000));
+    assert_eq!(vision.max_output_tokens, Some(384_000));
+    assert_eq!(vision.native_multimodal, Some(true));
+    let vision_capabilities = vision.capabilities();
+    assert!(vision_capabilities.tools);
+    assert_eq!(
+        vision_capabilities.structured_output,
+        vv_llm::StructuredOutputCapability::JsonSchema
+    );
+    assert_eq!(
+        vision_capabilities.thinking,
+        vv_llm::ThinkingCapability::Configurable
+    );
+    assert!(vision_capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Image));
+
     let reasoner = backend
         .models
         .get("deepseek-reasoner")
         .expect("deepseek-reasoner should exist")
         .capabilities();
     assert_eq!(reasoner.thinking, vv_llm::ThinkingCapability::AlwaysEnabled);
+}
+
+#[test]
+fn default_zhipuai_catalog_exposes_glm_53_capabilities() {
+    let settings = LlmSettings::from_json_str("{}").unwrap();
+    let model = settings
+        .backends
+        .get("zhipuai")
+        .and_then(|backend| backend.models.get("glm-5.3"))
+        .expect("glm-5.3 should exist");
+
+    assert_eq!(model.context_length, Some(1_000_000));
+    assert_eq!(model.max_output_tokens, Some(128_000));
+    assert_eq!(model.function_call_available, Some(true));
+    assert_eq!(model.response_format_available, Some(true));
+    assert_eq!(model.native_multimodal, Some(false));
+
+    let capabilities = model.capabilities();
+    assert!(capabilities.tools);
+    assert_eq!(
+        capabilities.structured_output,
+        vv_llm::StructuredOutputCapability::JsonSchema
+    );
+    assert_eq!(
+        capabilities.thinking,
+        vv_llm::ThinkingCapability::AlwaysEnabled
+    );
+    assert!(!capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Image));
+}
+
+#[test]
+fn default_qwen_38_catalog_exposes_hosted_api_capabilities() {
+    let settings = LlmSettings::from_json_str("{}").unwrap();
+    let backend = settings
+        .backends
+        .get("qwen")
+        .expect("qwen defaults should exist");
+
+    for model_name in ["qwen3.8-max", "qwen3.8-27b"] {
+        let model = backend
+            .models
+            .get(model_name)
+            .expect("Qwen 3.8 model should exist");
+        assert_eq!(model.context_length, Some(1_000_000));
+        assert_eq!(model.max_output_tokens, Some(131_072));
+        assert_eq!(model.function_call_available, Some(true));
+        assert_eq!(model.response_format_available, Some(true));
+        assert_eq!(model.native_multimodal, Some(true));
+
+        let capabilities = model.capabilities();
+        assert!(capabilities.tools);
+        assert_eq!(
+            capabilities.structured_output,
+            vv_llm::StructuredOutputCapability::JsonSchema
+        );
+        assert_eq!(
+            capabilities.thinking,
+            vv_llm::ThinkingCapability::Configurable
+        );
+        assert!(capabilities
+            .input_modalities
+            .contains(&vv_llm::Modality::Image));
+        assert!(capabilities
+            .input_modalities
+            .contains(&vv_llm::Modality::Video));
+    }
+
+    assert!(
+        backend
+            .models
+            .get("qwen3.8-max")
+            .expect("qwen3.8-max should exist")
+            .capabilities()
+            .parallel_tool_calls
+    );
+    assert!(
+        !backend
+            .models
+            .get("qwen3.8-27b")
+            .expect("qwen3.8-27b should exist")
+            .capabilities()
+            .parallel_tool_calls
+    );
 }
 
 #[test]
