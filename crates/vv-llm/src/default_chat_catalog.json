@@ -129,6 +129,7 @@
           "function_call_available": true,
           "response_format_available": true,
           "native_multimodal": true,
+          "max_image_dimension": 8192,
           "capabilities": {
             "tools": true,
             "structured_output": "json_schema",

@@ -549,6 +549,7 @@ fn default_deepseek_catalog_exposes_typed_thinking_capabilities() {
     assert_eq!(vision.context_length, Some(1_000_000));
     assert_eq!(vision.max_output_tokens, Some(384_000));
     assert_eq!(vision.native_multimodal, Some(true));
+    assert_eq!(vision.max_image_dimension, Some(8192));
     let vision_capabilities = vision.capabilities();
     assert!(vision_capabilities.tools);
     assert_eq!(

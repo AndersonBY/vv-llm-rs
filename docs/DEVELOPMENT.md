@@ -45,7 +45,7 @@ Checklist:
 - Keep unknown fields through `extra` maps where present.
 - Keep string and object endpoint binding support.
 - Preserve transport metadata: `endpoint_type`, `region`, `is_bedrock`, `is_vertex`, `credentials`.
-- Preserve model metadata: `context_length`, `max_output_tokens`, `function_call_available`, `response_format_available`, `native_multimodal`, `protocol`, `request_mapping`, and `response_mapping`.
+- Preserve model metadata: `context_length`, `max_output_tokens`, `function_call_available`, `response_format_available`, `native_multimodal`, `max_image_dimension`, `protocol`, `request_mapping`, and `response_mapping`.
 - Add tests for any new field or resolution rule.
 - Avoid changing resolution order unless the behavior change is intentional and documented.
 

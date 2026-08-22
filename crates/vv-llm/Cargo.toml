@@ -1,6 +1,6 @@
 [package]
 name = "vv-llm"
-version = "0.4.9"
+version = "0.4.10"
 edition = "2021"
 license = "MIT"
 description = "Rust implementation surface for vv-llm"
@@ -25,6 +25,7 @@ async-trait = "0.1"
 base64 = "0.22"
 futures-core = "0.3"
 futures-util = "0.3"
+image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
 httpdate = "1"
 jsonwebtoken = "10.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }

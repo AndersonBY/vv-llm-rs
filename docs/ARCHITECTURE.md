@@ -49,7 +49,7 @@ Public request and response structs should stay provider-neutral. Provider-speci
 - `Message`, `MessageRole`, and `MessageContent` represent text, image URL, assistant tool-call turns, and tool-result turns.
 - `ChatRequest` carries model, messages, options (including explicit thinking configuration), tools, and tool choice.
 - `ThinkingPreference` maps typed default/enabled/budgeted/disabled/provider-defined intent into the existing optional provider JSON field, preserving source and wire compatibility.
-- `ModelCapabilities` describes provider-neutral tools, structured-output, modality, streaming, and thinking support. `ModelConfig::capabilities()` reads explicit catalog metadata and derives legacy fields when metadata is absent.
+- `ModelCapabilities` describes provider-neutral tools, structured-output, modality, streaming, and thinking support. `ModelConfig` also carries the optional `max_image_dimension` input limit, and `ModelConfig::capabilities()` reads explicit catalog metadata and derives legacy fields when metadata is absent.
 - `ChatResponse` carries normalized content, tool calls, and usage.
 - `CompletionResult<Response>` adds execution metadata without changing the legacy `ChatResponse` struct.
 - `ResponseMetadata` records provider, model, response/request ids, attempts, latency, fallback index, and extensible attributes.

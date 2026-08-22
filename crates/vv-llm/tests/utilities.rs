@@ -1,11 +1,15 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use image::{DynamicImage, ImageBuffer, ImageFormat, Rgb};
+use std::io::Cursor;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use vv_llm::{
     utilities::{
         calculate_image_tokens, count_message_tokens, count_tokens, count_tokens_fallback,
-        count_tokens_with_settings, cutoff_messages, normalize_text_messages, RetryPolicy,
+        count_tokens_with_settings, cutoff_messages, normalize_image_inputs,
+        normalize_image_inputs_async, normalize_text_messages, RetryPolicy,
     },
-    ChatTool, LlmSettings, Message, MessageContent, MessageRole,
+    ChatRequest, ChatTool, LlmSettings, Message, MessageContent, MessageRole,
 };
 
 #[derive(Debug)]
@@ -100,6 +104,123 @@ fn normalizes_adjacent_text_messages_by_role() {
         normalized[0].text_content().as_deref(),
         Some("hello\nworld")
     );
+}
+
+#[test]
+fn resizes_long_data_url_images_without_changing_ratio() {
+    let source_url = test_png_data_url(400, 200);
+    let mut request = ChatRequest::new(
+        "deepseek-v4-flash-vision-exp",
+        vec![Message {
+            role: MessageRole::User,
+            content: vec![
+                MessageContent::text("describe this image"),
+                MessageContent::ImageUrl {
+                    url: source_url.clone(),
+                },
+            ],
+            name: None,
+            tool_call_id: None,
+            tool_calls: Vec::new(),
+            reasoning_content: None,
+        }],
+    );
+
+    normalize_image_inputs(&mut request, Some(128)).unwrap();
+    let resized_url = image_url(&request);
+    let resized = image::load_from_memory(&decode_data_url(resized_url)).unwrap();
+
+    assert_ne!(resized_url, source_url);
+    assert_eq!((resized.width(), resized.height()), (128, 64));
+}
+
+#[test]
+fn preserves_images_under_limit_and_rejects_zero_limit() {
+    let source_url = test_png_data_url(64, 32);
+    let mut request = ChatRequest::new(
+        "vision-model",
+        vec![Message {
+            role: MessageRole::User,
+            content: vec![MessageContent::ImageUrl {
+                url: source_url.clone(),
+            }],
+            name: None,
+            tool_call_id: None,
+            tool_calls: Vec::new(),
+            reasoning_content: None,
+        }],
+    );
+
+    normalize_image_inputs(&mut request, Some(128)).unwrap();
+    assert_eq!(image_url(&request), source_url);
+
+    assert!(normalize_image_inputs(&mut request, Some(0)).is_err());
+}
+
+#[tokio::test]
+async fn resizes_remote_image_urls_before_sending() {
+    let image_bytes = decode_data_url(&test_png_data_url(400, 200));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = [0_u8; 1024];
+        let _ = socket.read(&mut request).await.unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: image/png\r\ncontent-length: {}\r\n\r\n",
+            image_bytes.len()
+        );
+        socket.write_all(response.as_bytes()).await.unwrap();
+        socket.write_all(&image_bytes).await.unwrap();
+    });
+
+    let mut request = ChatRequest::new(
+        "deepseek-v4-flash-vision-exp",
+        vec![Message {
+            role: MessageRole::User,
+            content: vec![MessageContent::ImageUrl {
+                url: format!("{api_base}/image.png"),
+            }],
+            name: None,
+            tool_call_id: None,
+            tool_calls: Vec::new(),
+            reasoning_content: None,
+        }],
+    );
+
+    normalize_image_inputs_async(&mut request, Some(128))
+        .await
+        .unwrap();
+    server.await.unwrap();
+
+    let resized_url = image_url(&request);
+    let resized = image::load_from_memory(&decode_data_url(resized_url)).unwrap();
+    assert_eq!((resized.width(), resized.height()), (128, 64));
+}
+
+fn test_png_data_url(width: u32, height: u32) -> String {
+    let image = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(width, height, Rgb([35, 96, 120])));
+    let mut bytes = Cursor::new(Vec::new());
+    image.write_to(&mut bytes, ImageFormat::Png).unwrap();
+    format!(
+        "data:image/png;base64,{}",
+        STANDARD.encode(bytes.into_inner())
+    )
+}
+
+fn decode_data_url(url: &str) -> Vec<u8> {
+    STANDARD.decode(url.split_once(',').unwrap().1).unwrap()
+}
+
+fn image_url(request: &ChatRequest) -> &str {
+    request.messages[0]
+        .content
+        .iter()
+        .find_map(|content| match content {
+            MessageContent::ImageUrl { url } => Some(url.as_str()),
+            _ => None,
+        })
+        .expect("expected image content")
 }
 
 #[test]

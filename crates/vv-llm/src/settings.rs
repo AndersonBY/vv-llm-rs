@@ -107,6 +107,8 @@ pub struct ModelConfig {
     #[serde(default)]
     pub native_multimodal: Option<bool>,
     #[serde(default)]
+    pub max_image_dimension: Option<u32>,
+    #[serde(default)]
     pub protocol: Option<String>,
     #[serde(default)]
     pub dimensions: Option<u32>,
@@ -409,6 +411,9 @@ fn merge_model_config(mut default_model: ModelConfig, user_model: ModelConfig) -
     }
     if user_model.native_multimodal.is_some() {
         default_model.native_multimodal = user_model.native_multimodal;
+    }
+    if user_model.max_image_dimension.is_some() {
+        default_model.max_image_dimension = user_model.max_image_dimension;
     }
     if user_model.protocol.is_some() {
         default_model.protocol = user_model.protocol;
