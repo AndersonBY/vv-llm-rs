@@ -12,7 +12,7 @@ This document captures common change workflows for `vv-llm-rs`.
 ## Updating Contract Artifacts
 
 The language-neutral schemas, deterministic fixtures, and default catalog are
-vendored under `crates/vv-llm/contract/v1.0.0/`. A read-only check uses only
+vendored under `crates/vv-llm/contract/v1.0.1/`. A read-only check uses only
 the checked-in tree:
 
 ```bash
@@ -22,8 +22,8 @@ python scripts/sync_contract.py --check
 To synchronize, provide an explicit contract release directory:
 
 ```bash
-python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.0.0
-VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.0.0 python scripts/sync_contract.py
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.0.1
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.0.1 python scripts/sync_contract.py
 ```
 
 The check is also the first release CI gate. Never put credentials or live

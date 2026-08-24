@@ -1,9 +1,8 @@
 use vv_llm::{default_chat_model, settings::LlmSettings, BackendType};
 
 #[test]
-fn loads_v2_settings_and_resolves_chat_model_endpoint() {
+fn loads_settings_and_resolves_chat_model_endpoint() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [{"id":"openai-default","api_base":"https://api.openai.com/v1","api_key":"sk-test"}],
       "backends": {"openai": {"models": {"gpt-4o": {"id":"gpt-4o","endpoints":["openai-default"],"context_length":128000}}}},
       "embedding_backends": {},
@@ -24,33 +23,18 @@ fn loads_v2_settings_and_resolves_chat_model_endpoint() {
 }
 
 #[test]
-fn settings_do_not_upgrade_v1_top_level_backends_or_mark_version() {
-    let raw = r#"{
-      "VERSION": "1",
-      "endpoints": [{"id":"openai-default","api_base":"https://api.openai.com/v1","api_key":"sk-test"}],
-      "openai": {
-        "default_endpoint": "openai-default",
-        "models": {
-          "gpt-4o": {"id":"gpt-4o","context_length":128000}
-        }
-      }
-    }"#;
+fn rejects_top_level_provider_config() {
+    for backend in ["openai", "local"] {
+        let raw = format!(r#"{{"{backend}":{{"models":{{}}}}}}"#);
+        let error = LlmSettings::from_json_str(&raw).unwrap_err();
 
-    let settings = LlmSettings::from_json_str(raw).unwrap();
-
-    assert_eq!(settings.version.as_deref(), Some("1"));
-    assert!(settings.extra.contains_key("openai"));
-    assert!(settings
-        .backends
-        .get("openai")
-        .and_then(|backend| backend.default_endpoint.as_deref())
-        .is_none());
+        assert!(error.to_string().contains(&format!("backends.{backend}")));
+    }
 }
 
 #[test]
 fn resolves_models_by_public_key_or_provider_id() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [{"id":"openai-default","api_base":"https://api.openai.com/v1","api_key":"sk-test"}],
       "backends": {
         "openai": {
@@ -83,7 +67,6 @@ fn resolves_models_by_public_key_or_provider_id() {
 #[test]
 fn resolves_embedding_and_rerank_models() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [{"id":"retrieval","api_base":"https://example.com/v1","api_key":"sk-test"}],
       "embedding_backends": {
         "siliconflow": {
@@ -125,7 +108,6 @@ fn resolves_embedding_and_rerank_models() {
 #[test]
 fn preserves_python_retrieval_model_metadata() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [{"id":"retrieval","api_base":"https://example.com/v1","api_key":"sk-test"}],
       "embedding_backends": {
         "custom": {
@@ -168,7 +150,6 @@ fn preserves_python_retrieval_model_metadata() {
 #[test]
 fn missing_backend_and_endpoint_return_specific_errors() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [],
       "backends": {
         "openai": {
@@ -197,7 +178,6 @@ fn missing_backend_and_endpoint_return_specific_errors() {
 #[test]
 fn endpoint_bindings_accept_string_and_object_forms() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [
         {"id":"disabled","api_base":"https://disabled.example.com/v1","api_key":"sk-disabled"},
         {"id":"enabled","api_base":"https://enabled.example.com/v1","api_key":"sk-enabled"}
@@ -238,7 +218,6 @@ fn endpoint_bindings_accept_string_and_object_forms() {
 #[test]
 fn endpoint_preserves_anthropic_bedrock_transport_fields() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [
         {
           "id":"bedrock-anthropic",
@@ -282,7 +261,6 @@ fn endpoint_preserves_anthropic_bedrock_transport_fields() {
 #[test]
 fn endpoint_preserves_openai_vertex_transport_fields() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [
         {
           "id":"vertex-openai",
@@ -326,7 +304,6 @@ fn endpoint_preserves_openai_vertex_transport_fields() {
 #[test]
 fn loads_python_default_chat_catalog_for_empty_settings() {
     let settings = LlmSettings::from_json_str("{}").unwrap();
-    assert_eq!(settings.version.as_deref(), None);
     let qwen = settings
         .backends
         .get("qwen")
@@ -660,7 +637,6 @@ fn default_qwen_38_catalog_exposes_hosted_api_capabilities() {
 #[test]
 fn legacy_overrides_update_default_capabilities_without_losing_thinking_metadata() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [{"id":"deepseek-default","api_base":"https://api.deepseek.com","api_key":"sk-test"}],
       "backends": {
         "deepseek": {
@@ -701,7 +677,6 @@ fn legacy_overrides_update_default_capabilities_without_losing_thinking_metadata
 #[test]
 fn merges_user_chat_model_overrides_with_python_defaults() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [{"id":"dashscope-default","api_base":"https://dashscope.aliyuncs.com/compatible-mode/v1","api_key":"sk-test"}],
       "backends": {
         "qwen": {
@@ -731,7 +706,6 @@ fn merges_user_chat_model_overrides_with_python_defaults() {
 #[test]
 fn applies_python_defaults_to_user_defined_chat_models() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [{"id":"openai-default","api_base":"https://api.openai.com/v1","api_key":"sk-test"}],
       "backends": {
         "openai": {
@@ -756,7 +730,6 @@ fn applies_python_defaults_to_user_defined_chat_models() {
 #[test]
 fn settings_preserve_python_endpoint_metadata_fields() {
     let raw = r#"{
-      "VERSION": "2",
       "endpoints": [{
         "id":"azure-openai",
         "enabled": false,

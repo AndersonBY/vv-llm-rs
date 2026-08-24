@@ -9,7 +9,7 @@ use vv_llm::{
 };
 
 const CONTRACT_CONSUMER_LOCK_BYTES: &[u8] =
-    include_bytes!("../contract/v1.0.0/consumer-lock.v1.json");
+    include_bytes!("../contract/v1.0.1/consumer-lock.v1.json");
 
 fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
@@ -31,7 +31,7 @@ fn exposes_pinned_contract_metadata() {
             catalog_revision: CONTRACT_CATALOG_REVISION,
         }
     );
-    assert_eq!(contract_metadata().version, "1.0.0");
+    assert_eq!(contract_metadata().version, "1.0.1");
 }
 
 #[test]
@@ -40,11 +40,11 @@ fn embeds_manifest_and_consumer_lock() {
     let lock: Value =
         serde_json::from_str(contract_consumer_lock_json()).expect("consumer lock JSON");
 
-    assert_eq!(manifest["contract_version"], "1.0.0");
+    assert_eq!(manifest["contract_version"], "1.0.1");
     assert_eq!(manifest["schema_version"], 2);
     assert_eq!(manifest["fixture_version"], 2);
     assert_eq!(manifest["catalog_revision"], 1);
-    assert_eq!(lock["contract_version"], "1.0.0");
+    assert_eq!(lock["contract_version"], "1.0.1");
     assert_eq!(lock["schema_version"], 2);
     assert_eq!(lock["fixture_version"], 2);
     assert_eq!(lock["catalog_revision"], 1);

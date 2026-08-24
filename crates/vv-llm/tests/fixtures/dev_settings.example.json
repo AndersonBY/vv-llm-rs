@@ -1,5 +1,4 @@
 {
-  "VERSION": "2",
   "endpoints": [
     {
       "id": "openai-live",

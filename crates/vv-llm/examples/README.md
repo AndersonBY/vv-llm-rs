@@ -1,6 +1,6 @@
 # vv-llm-rs Examples
 
-The network examples use a V2 settings JSON file. Copy
+The network examples use a settings JSON file. Copy
 llm_settings.example.json, replace the placeholder key, and select the
 backend and model explicitly:
 

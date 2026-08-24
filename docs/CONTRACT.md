@@ -2,7 +2,7 @@
 
 `vv-llm-rs` consumes the language-neutral `vv-llm-contract` release as a
 vendored, locked artifact tree. The current tree is
-`crates/vv-llm/contract/v1.0.0/` and contains the manifest, consumer lock,
+`crates/vv-llm/contract/v1.0.1/` and contains the manifest, consumer lock,
 checksum index, default model catalog, deterministic fixtures, and all
 versioned JSON schemas. It contains no credentials or live-test settings.
 
@@ -19,8 +19,8 @@ Synchronization requires an explicit contract release directory. Use either the
 CLI argument or the environment variable; the CLI argument takes precedence:
 
 ```bash
-python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.0.0
-VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.0.0 python scripts/sync_contract.py
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.0.1
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.0.1 python scripts/sync_contract.py
 ```
 
 The script validates the source lock, manifest, checksum index, and all

@@ -245,7 +245,7 @@ impl EndpointBinding {
 impl LlmSettings {
     pub fn from_json_str(raw: &str) -> Result<Self, VvLlmError> {
         let mut settings: Self = serde_json::from_str(raw)?;
-        settings.normalize_after_load();
+        settings.normalize_after_load()?;
         Ok(settings)
     }
 
@@ -279,19 +279,29 @@ impl LlmSettings {
         self.resolve_model_in_map(&self.rerank_backends, backend, model_id)
     }
 
-    fn normalize_after_load(&mut self) {
+    fn normalize_after_load(&mut self) -> Result<(), VvLlmError> {
+        if let Some(backend) = self.extra.keys().find(|backend| {
+            serde_json::from_value::<BackendType>(Value::String((*backend).clone())).is_ok()
+        }) {
+            return Err(VvLlmError::Configuration(format!(
+                "top-level provider setting '{backend}' is unsupported; use 'backends.{backend}'"
+            )));
+        }
+
+        let default_backends = default_chat_backends();
         for endpoint in &mut self.endpoints {
             normalize_endpoint_transport_flags(endpoint);
             normalize_google_openai_base(endpoint);
             preserve_vertex_cached_token(endpoint);
         }
 
-        self.merge_default_chat_backends();
+        self.merge_default_chat_backends(default_backends);
         self.apply_python_chat_model_defaults();
+        Ok(())
     }
 
-    fn merge_default_chat_backends(&mut self) {
-        for (backend_name, default_backend) in default_chat_backends() {
+    fn merge_default_chat_backends(&mut self, default_backends: HashMap<String, BackendConfig>) {
+        for (backend_name, default_backend) in default_backends {
             let backend = match self.backends.remove(&backend_name) {
                 Some(user_backend) => merge_backend_config(default_backend, user_backend),
                 None => default_backend,

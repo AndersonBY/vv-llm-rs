@@ -15,7 +15,7 @@ vv-llm-rs/
     test_sync_contract.py
   crates/vv-llm/
     Cargo.toml
-    contract/v1.0.0/       # locked language-neutral schemas, fixtures, and catalog
+    contract/v1.0.1/       # locked language-neutral schemas, fixtures, and catalog
     src/
       lib.rs
       contract.rs
@@ -70,7 +70,6 @@ When adding fields, prefer optional fields with serde defaults unless all existi
 
 `settings.rs` parses the shared settings shape:
 
-- `VERSION`
 - `endpoints`
 - `backends`
 - `embedding_backends`
@@ -160,8 +159,8 @@ feature replacement for the Python package. Keep these boundaries explicit:
 | Embedding/rerank | Sync and async OpenAI, Cohere, Jina, Voyage, SiliconFlow, Local, and custom mapping paths | Async OpenAI-compatible embeddings and custom JSON HTTP rerank | No Rust sync facade or dedicated Cohere/Voyage embedding protocol adapter |
 | Rate limiting | Active memory, Redis, and DiskCache RPM/TPM limiters (optional extras) | Parses endpoint/global RPM/TPM settings but does not enforce a local/distributed limiter | Rust retry handling of 429/`Retry-After` is not rate-limit enforcement |
 | Token counting | Local model tokenizers, provider/token-server fallback, and optional FastAPI token server | Local `tiktoken-rs`, configured token-server/provider-tokenizer fallback, no bundled server executable | Rust consumes a token server; it does not ship the Python FastAPI server |
-| Settings compatibility | V1 upgrade and V2 `backends`/retrieval fields | V2 `backends`/retrieval fields, string/object bindings, and transport metadata; top-level V1 is intentionally not upgraded | Use the versioned contract and do not assume Python's V1 migration behavior |
-| Contract artifacts | Vendored `vv-llm-contract` 1.0.0 schemas, fixtures, catalog, and lock | Vendored same release with lock SHA pin and compile-time catalog/fixture use | JSON wire semantics are shared; runtime orchestration remains language-specific |
+| Settings | Shared `backends`/retrieval fields | Shared `backends`/retrieval fields, string/object bindings, and transport metadata | The JSON shape is shared; runtime-specific loading remains independent |
+| Contract artifacts | Vendored `vv-llm-contract` 1.0.1 schemas, fixtures, catalog, and lock | Vendored same release with lock SHA pin and compile-time catalog/fixture use | JSON wire semantics are shared; runtime orchestration remains language-specific |
 
 ## Adapter Boundaries
 

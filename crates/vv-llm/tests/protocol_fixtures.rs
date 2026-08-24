@@ -9,7 +9,7 @@ use vv_llm::{parse_retry_after, ChatRequest, ToolCall};
 fn openai_fixture() -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("contract")
-        .join("v1.0.0")
+        .join("v1.0.1")
         .join("fixtures")
         .join("openai-compatible.v2.json");
     let content = fs::read_to_string(path).expect("protocol fixture");
@@ -19,7 +19,7 @@ fn openai_fixture() -> Value {
 fn retry_fixture() -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("contract")
-        .join("v1.0.0")
+        .join("v1.0.1")
         .join("fixtures")
         .join("retry-after.v1.json");
     let content = fs::read_to_string(path).expect("retry fixture");
