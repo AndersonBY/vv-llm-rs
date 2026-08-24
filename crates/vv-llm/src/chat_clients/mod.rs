@@ -208,18 +208,24 @@ mod tests {
                 role: crate::MessageRole::User,
                 content: vec![crate::MessageContent::ImageUrl {
                     url: test_png_data_url(400, 200),
+                    detail: None,
+                    cache_control: None,
+                    extensions: crate::JsonExtensions::new(),
+                    nested_extensions: crate::JsonExtensions::new(),
+                    nested_image: false,
                 }],
                 name: None,
                 tool_call_id: None,
                 tool_calls: Vec::new(),
                 reasoning_content: None,
+                extensions: crate::JsonExtensions::new(),
             }],
         );
 
         client.create_completion(request).await.unwrap();
         let captured = captured.lock().unwrap().take().unwrap();
         let url = match &captured.messages[0].content[0] {
-            crate::MessageContent::ImageUrl { url } => url,
+            crate::MessageContent::ImageUrl { url, .. } => url,
             _ => panic!("expected image content"),
         };
         let bytes = STANDARD.decode(url.split_once(',').unwrap().1).unwrap();

@@ -50,6 +50,9 @@ pub trait ChatMiddlewareV1: Send + Sync {
         Ok(response)
     }
 
+    /// Called after the provider stream has been established and before the
+    /// first stream item is yielded. This is not a first-visible-delta hook;
+    /// metadata-only prelude items may still follow it.
     async fn on_stream_start(&self, _context: &MiddlewareContext) -> Result<(), VvLlmError> {
         Ok(())
     }
@@ -139,6 +142,11 @@ impl MiddlewareChatClient {
         &self,
         request: ChatRequest,
     ) -> Result<CompletionResult<ChatResponse>, VvLlmError> {
+        if request.options.stream == Some(true) {
+            return Err(VvLlmError::Configuration(
+                "create_with_metadata does not support streaming; use create_stream".to_string(),
+            ));
+        }
         let started = Instant::now();
         let (response, attempts) = self.execute_completion(request).await?;
         let metadata = ResponseMetadata {

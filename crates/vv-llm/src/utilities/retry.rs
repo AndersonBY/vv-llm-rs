@@ -10,6 +10,7 @@ pub struct RetryPolicy {
     max_delay: Duration,
     jitter_basis_points: u16,
     total_timeout: Option<Duration>,
+    retryable_kinds: u16,
 }
 
 impl RetryPolicy {
@@ -44,8 +45,19 @@ impl RetryPolicy {
         self
     }
 
+    /// Replace the default transient error set used by this policy.
+    pub fn with_retryable_kinds<I>(mut self, kinds: I) -> Self
+    where
+        I: IntoIterator<Item = ErrorKind>,
+    {
+        self.retryable_kinds = kinds
+            .into_iter()
+            .fold(0, |mask, kind| mask | error_kind_bit(kind));
+        self
+    }
+
     pub fn should_retry(self, error: &VvLlmError, attempt: u32) -> bool {
-        attempt < self.max_attempts && error.retryable()
+        attempt < self.max_attempts && self.retryable_kinds & error_kind_bit(error.kind()) != 0
     }
 
     pub fn delay_for(self, error: &VvLlmError, attempt: u32, random_unit: f64) -> Duration {
@@ -73,7 +85,36 @@ impl Default for RetryPolicy {
             max_delay: Duration::from_secs(8),
             jitter_basis_points: 2_000,
             total_timeout: None,
+            retryable_kinds: default_retryable_kinds(),
         }
+    }
+}
+
+fn default_retryable_kinds() -> u16 {
+    [
+        ErrorKind::RateLimited,
+        ErrorKind::Network,
+        ErrorKind::Timeout,
+        ErrorKind::ProviderInternal,
+    ]
+    .into_iter()
+    .fold(0, |mask, kind| mask | error_kind_bit(kind))
+}
+
+fn error_kind_bit(kind: ErrorKind) -> u16 {
+    match kind {
+        ErrorKind::Authentication => 1 << 0,
+        ErrorKind::RateLimited => 1 << 1,
+        ErrorKind::Network => 1 << 2,
+        ErrorKind::Timeout => 1 << 3,
+        ErrorKind::InvalidRequest => 1 << 4,
+        ErrorKind::ContextLength => 1 << 5,
+        ErrorKind::ContentPolicy => 1 << 6,
+        ErrorKind::ModelNotFound => 1 << 7,
+        ErrorKind::ProviderInternal => 1 << 8,
+        ErrorKind::Serialization => 1 << 9,
+        ErrorKind::Configuration => 1 << 10,
+        ErrorKind::Unknown => 1 << 11,
     }
 }
 

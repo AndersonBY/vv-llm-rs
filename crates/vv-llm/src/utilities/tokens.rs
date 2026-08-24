@@ -554,5 +554,6 @@ fn truncate_message_tail(message: &Message, max_chars: usize) -> Message {
         tool_call_id: message.tool_call_id.clone(),
         tool_calls: message.tool_calls.clone(),
         reasoning_content: message.reasoning_content.clone(),
+        extensions: message.extensions.clone(),
     }
 }

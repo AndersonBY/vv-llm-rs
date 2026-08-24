@@ -23,7 +23,7 @@ pub fn normalize_image_inputs(
 
     for message in &mut request.messages {
         for content in &mut message.content {
-            if let MessageContent::ImageUrl { url } = content {
+            if let MessageContent::ImageUrl { url, .. } = content {
                 *url = normalize_image_url(url, max_image_dimension)?;
             }
         }
@@ -47,7 +47,7 @@ pub async fn normalize_image_inputs_async(
 
     for message in &mut request.messages {
         for content in &mut message.content {
-            let MessageContent::ImageUrl { url } = content else {
+            let MessageContent::ImageUrl { url, .. } = content else {
                 continue;
             };
             let source_url = url.clone();

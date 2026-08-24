@@ -27,8 +27,8 @@ async fn live_deepseek_openai_compatible_chat_completion() {
 
     let response = run_with_timer("deepseek_chat", || async {
         client
-            .create_completion(ChatRequest {
-                model,
+            .create(ChatRequest {
+                model: model.clone(),
                 messages: vec![Message::text(
                     MessageRole::User,
                     "Reply with the word pong.",
@@ -37,13 +37,84 @@ async fn live_deepseek_openai_compatible_chat_completion() {
                 tools: Vec::new(),
                 tool_choice: None,
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
     .await
     .unwrap();
 
+    if let Some(usage) = response.usage.as_ref() {
+        eprintln!(
+            "[live] deepseek_chat model={} prompt_tokens={:?} completion_tokens={:?} total_tokens={:?}",
+            model, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+        );
+    } else {
+        eprintln!("[live] deepseek_chat model={} usage=none", model);
+    }
     assert!(!response.content.trim().is_empty());
+}
+
+#[tokio::test]
+#[ignore = "live API call; run with VV_LLM_RUN_LIVE_TESTS=1 cargo test --test live_tests -- --ignored"]
+async fn live_deepseek_openai_compatible_chat_streaming() {
+    require_live();
+    let settings = load_live_settings(true).unwrap();
+    let (model, api_base, api_key) = resolved_parts(
+        settings
+            .resolve_chat_model(BackendType::DeepSeek, "deepseek-chat")
+            .unwrap(),
+    );
+    let client = create_chat_client(BackendType::DeepSeek, model.clone(), api_base, api_key);
+
+    let mut stream = run_with_timer("deepseek_chat_stream", || async {
+        client
+            .create_stream(ChatRequest {
+                model: model.clone(),
+                messages: vec![Message::text(
+                    MessageRole::User,
+                    "Reply with the word pong.",
+                )],
+                options: ChatRequestOptions {
+                    max_tokens: Some(64),
+                    stream: Some(true),
+                    ..Default::default()
+                },
+                tools: Vec::new(),
+                tool_choice: None,
+                extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
+            })
+            .await
+    })
+    .await
+    .unwrap();
+
+    let mut content = String::new();
+    let mut usage = None;
+    let mut saw_done = false;
+    while let Some(delta) = stream.next().await {
+        let delta = delta.unwrap();
+        content.push_str(&delta.content);
+        saw_done |= delta.done;
+        if delta.usage.is_some() {
+            usage = delta.usage;
+        }
+    }
+
+    if let Some(usage) = usage.as_ref() {
+        eprintln!(
+            "[live] deepseek_chat_stream model={} prompt_tokens={:?} completion_tokens={:?} total_tokens={:?}",
+            model, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+        );
+    } else {
+        eprintln!("[live] deepseek_chat_stream model={} usage=none", model);
+    }
+    assert!(
+        content.to_ascii_lowercase().contains("pong"),
+        "stream did not contain the expected response token"
+    );
+    assert!(saw_done, "stream did not emit done delta");
 }
 
 #[tokio::test]
@@ -151,6 +222,7 @@ async fn live_deepseek_accepts_reasoning_only_assistant_history() {
         tool_call_id: None,
         tool_calls: Vec::new(),
         reasoning_content: Some("Private prior reasoning.".to_string()),
+        extensions: Default::default(),
     };
 
     let response = run_with_timer("deepseek_reasoning_only_history", || async {
@@ -169,6 +241,7 @@ async fn live_deepseek_accepts_reasoning_only_assistant_history() {
                 tools: Vec::new(),
                 tool_choice: None,
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -208,6 +281,7 @@ async fn live_qwen_openai_compatible_chat_with_system_prompt() {
                 tools: Vec::new(),
                 tool_choice: None,
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -244,6 +318,7 @@ async fn live_qwen_3_7_max_openai_compatible_chat_completion() {
                 tools: Vec::new(),
                 tool_choice: None,
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -277,6 +352,7 @@ async fn live_zhipuai_openai_compatible_chat_completion() {
                 tools: Vec::new(),
                 tool_choice: None,
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -309,6 +385,7 @@ async fn live_anthropic_chat_from_resolved() {
                 tools: Vec::new(),
                 tool_choice: None,
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -344,6 +421,7 @@ async fn live_claude_opus_4_8_chat_from_resolved() {
                 tools: Vec::new(),
                 tool_choice: None,
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -375,12 +453,20 @@ async fn live_anthropic_bedrock_image_understanding() {
                         MessageContent::text(
                             "What animal is in this image? Reply with one English word.",
                         ),
-                        MessageContent::ImageUrl { url: image_url },
+                        MessageContent::ImageUrl {
+                            url: image_url,
+                            detail: None,
+                            cache_control: None,
+                            extensions: Default::default(),
+                            nested_extensions: Default::default(),
+                            nested_image: false,
+                        },
                     ],
                     name: None,
                     tool_call_id: None,
                     tool_calls: Vec::new(),
                     reasoning_content: None,
+                    extensions: Default::default(),
                 }],
                 options: ChatRequestOptions {
                     max_tokens: Some(16),
@@ -389,6 +475,7 @@ async fn live_anthropic_bedrock_image_understanding() {
                 tools: Vec::new(),
                 tool_choice: None,
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -427,8 +514,9 @@ async fn live_anthropic_bedrock_tool_call() {
                     ..Default::default()
                 },
                 tools: vec![weather_tool()],
-                tool_choice: Some("required".to_string()),
+                tool_choice: Some("required".into()),
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -472,8 +560,9 @@ async fn live_anthropic_bedrock_tool_result_multi_turn() {
                     ..Default::default()
                 },
                 tools: vec![weather_tool()],
-                tool_choice: Some("required".to_string()),
+                tool_choice: Some("required".into()),
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -498,6 +587,7 @@ async fn live_anthropic_bedrock_tool_result_multi_turn() {
                         tool_call_id: None,
                         tool_calls: vec![tool_call.clone()],
                         reasoning_content: None,
+                        extensions: Default::default(),
                     },
                     Message {
                         role: MessageRole::Tool,
@@ -506,6 +596,7 @@ async fn live_anthropic_bedrock_tool_result_multi_turn() {
                         tool_call_id: Some(tool_call.id),
                         tool_calls: Vec::new(),
                         reasoning_content: None,
+                        extensions: Default::default(),
                     },
                     Message::text(
                         MessageRole::User,
@@ -517,8 +608,9 @@ async fn live_anthropic_bedrock_tool_result_multi_turn() {
                     ..Default::default()
                 },
                 tools: vec![weather_tool()],
-                tool_choice: Some("auto".to_string()),
+                tool_choice: Some("auto".into()),
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -560,6 +652,7 @@ async fn live_anthropic_bedrock_streaming_text() {
                 tools: Vec::new(),
                 tool_choice: None,
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -576,7 +669,7 @@ async fn live_anthropic_bedrock_streaming_text() {
 
     assert!(
         content.to_ascii_lowercase().contains("pong"),
-        "streamed content: {content}"
+        "stream did not contain the expected response token"
     );
     assert!(saw_done, "stream did not emit done delta");
 }
@@ -606,8 +699,9 @@ async fn live_anthropic_bedrock_streaming_tool_call() {
                     ..Default::default()
                 },
                 tools: vec![weather_tool()],
-                tool_choice: Some("required".to_string()),
+                tool_choice: Some("required".into()),
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })
@@ -629,7 +723,7 @@ async fn live_anthropic_bedrock_streaming_tool_call() {
     assert_eq!(tool_name, "get_current_weather");
     assert!(
         tool_args.contains("New York") || tool_args.contains("new york"),
-        "unexpected streamed tool arguments: {tool_args}"
+        "streamed tool call did not contain the expected location"
     );
 }
 
@@ -663,6 +757,7 @@ async fn live_gemini_openai_vertex_chat_completion() {
                 tools: Vec::new(),
                 tool_choice: None,
                 extra_body: serde_json::Value::Null,
+                extensions: Default::default(),
             })
             .await
     })

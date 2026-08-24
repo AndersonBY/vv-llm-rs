@@ -405,6 +405,7 @@ impl ChatClient for AnthropicBedrockChatClient {
                             arguments: document_to_json(&tool_use.input)?.to_string(),
                             index: None,
                             extra_content: None,
+                            extensions: crate::JsonExtensions::new(),
                         });
                     }
                     _ => {}
@@ -536,8 +537,13 @@ fn to_anthropic_json(model: &str, request: &ChatRequest) -> Result<Value, VvLlmE
     if !request.tools.is_empty() {
         value["tools"] = Value::Array(request.tools.iter().map(to_anthropic_tool).collect());
     }
-    if let Some(tool_choice) = request.tool_choice.as_deref() {
-        value["tool_choice"] = to_anthropic_tool_choice(tool_choice)?;
+    if let Some(tool_choice) = request.tool_choice.as_ref() {
+        let mode = tool_choice.as_mode().ok_or_else(|| {
+            VvLlmError::Configuration(
+                "Anthropic tool_choice only supports string modes".to_string(),
+            )
+        })?;
+        value["tool_choice"] = to_anthropic_tool_choice(mode)?;
     } else if !request.tools.is_empty() {
         value["tool_choice"] = json!({"type": "auto"});
     }
@@ -574,6 +580,7 @@ fn to_anthropic_content(message: &Message) -> Result<Vec<Value>, VvLlmError> {
             MessageContent::Text {
                 text,
                 cache_control,
+                ..
             } => {
                 let mut block = json!({
                     "type": "text",
@@ -584,7 +591,7 @@ fn to_anthropic_content(message: &Message) -> Result<Vec<Value>, VvLlmError> {
                 }
                 blocks.push(block);
             }
-            MessageContent::ImageUrl { url } => {
+            MessageContent::ImageUrl { url, .. } => {
                 let data = parse_data_url(url)?;
                 blocks.push(json!({
                     "type": "image",
@@ -703,8 +710,13 @@ fn to_bedrock_request(
             .map(to_bedrock_tool)
             .collect::<Result<Vec<_>, _>>()?;
         let mut builder = bedrock::ToolConfiguration::builder().set_tools(Some(tools));
-        if let Some(choice) = request.tool_choice.as_deref() {
-            if let Some(choice) = to_bedrock_tool_choice(choice)? {
+        if let Some(choice) = request.tool_choice.as_ref() {
+            let mode = choice.as_mode().ok_or_else(|| {
+                VvLlmError::Configuration(
+                    "Bedrock tool_choice only supports string modes".to_string(),
+                )
+            })?;
+            if let Some(choice) = to_bedrock_tool_choice(mode)? {
                 builder = builder.tool_choice(choice);
             }
         } else {
@@ -731,7 +743,7 @@ fn to_anthropic_sdk_message(message: &Message, role: Role) -> Result<AnthropicMe
             MessageContent::Text { text, .. } => {
                 content.push(AnthropicContentBlock::Text { text: text.clone() });
             }
-            MessageContent::ImageUrl { url } => {
+            MessageContent::ImageUrl { url, .. } => {
                 let data = parse_data_url(url)?;
                 content.push(AnthropicContentBlock::Image {
                     source: "base64".to_string(),
@@ -773,7 +785,7 @@ fn to_bedrock_message(
                 MessageContent::Text { text, .. } => {
                     content.push(bedrock::ContentBlock::Text(text.clone()));
                 }
-                MessageContent::ImageUrl { url } => {
+                MessageContent::ImageUrl { url, .. } => {
                     let data = parse_data_url(url)?;
                     let image = bedrock::ImageBlock::builder()
                         .format(to_bedrock_image_format(&data.media_type)?)
@@ -880,6 +892,7 @@ mod tests {
             tools: Vec::new(),
             tool_choice: None,
             extra_body: Value::Null,
+            extensions: crate::JsonExtensions::new(),
         };
 
         let request = to_bedrock_request("anthropic.claude-sonnet-4-6", &request).unwrap();
@@ -1199,6 +1212,7 @@ fn normalize_anthropic_stream_json(
                         arguments: value_to_string(delta.get("partial_json")),
                         index: None,
                         extra_content: None,
+                        extensions: crate::JsonExtensions::new(),
                     }],
                     ..Default::default()
                 })),
@@ -1244,6 +1258,7 @@ fn tool_call_from_anthropic_block(block: &Value) -> Result<ToolCall, VvLlmError>
             .to_string(),
         index: None,
         extra_content: None,
+        extensions: crate::JsonExtensions::new(),
     })
 }
 
@@ -1443,6 +1458,7 @@ fn normalize_bedrock_stream_event(
                     arguments: String::new(),
                     index: Some(event.content_block_index as usize),
                     extra_content: None,
+                    extensions: crate::JsonExtensions::new(),
                 };
                 state
                     .tool_uses
@@ -1489,6 +1505,7 @@ fn normalize_bedrock_stream_event(
                             arguments: String::new(),
                             index: Some(event.content_block_index as usize),
                             extra_content: None,
+                            extensions: crate::JsonExtensions::new(),
                         });
                     tool_call.arguments.push_str(&tool_use.input);
                     Ok(Some(ChatStreamDelta {
@@ -1498,6 +1515,7 @@ fn normalize_bedrock_stream_event(
                             arguments: tool_use.input,
                             index: Some(event.content_block_index as usize),
                             extra_content: None,
+                            extensions: crate::JsonExtensions::new(),
                         }],
                         ..Default::default()
                     }))

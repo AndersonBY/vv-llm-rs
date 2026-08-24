@@ -117,12 +117,18 @@ fn resizes_long_data_url_images_without_changing_ratio() {
                 MessageContent::text("describe this image"),
                 MessageContent::ImageUrl {
                     url: source_url.clone(),
+                    detail: None,
+                    cache_control: None,
+                    extensions: Default::default(),
+                    nested_extensions: Default::default(),
+                    nested_image: false,
                 },
             ],
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
             reasoning_content: None,
+            extensions: Default::default(),
         }],
     );
 
@@ -143,11 +149,17 @@ fn preserves_images_under_limit_and_rejects_zero_limit() {
             role: MessageRole::User,
             content: vec![MessageContent::ImageUrl {
                 url: source_url.clone(),
+                detail: None,
+                cache_control: None,
+                extensions: Default::default(),
+                nested_extensions: Default::default(),
+                nested_image: false,
             }],
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
             reasoning_content: None,
+            extensions: Default::default(),
         }],
     );
 
@@ -180,11 +192,17 @@ async fn resizes_remote_image_urls_before_sending() {
             role: MessageRole::User,
             content: vec![MessageContent::ImageUrl {
                 url: format!("{api_base}/image.png"),
+                detail: None,
+                cache_control: None,
+                extensions: Default::default(),
+                nested_extensions: Default::default(),
+                nested_image: false,
             }],
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
             reasoning_content: None,
+            extensions: Default::default(),
         }],
     );
 
@@ -217,7 +235,7 @@ fn image_url(request: &ChatRequest) -> &str {
         .content
         .iter()
         .find_map(|content| match content {
-            MessageContent::ImageUrl { url } => Some(url.as_str()),
+            MessageContent::ImageUrl { url, .. } => Some(url.as_str()),
             _ => None,
         })
         .expect("expected image content")
@@ -465,12 +483,18 @@ fn message_token_counter_counts_text_images_and_tools() {
                 MessageContent::text("describe"),
                 MessageContent::ImageUrl {
                     url: "data:image/png;base64,AAAA".to_string(),
+                    detail: None,
+                    cache_control: None,
+                    extensions: Default::default(),
+                    nested_extensions: Default::default(),
+                    nested_image: false,
                 },
             ],
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
             reasoning_content: None,
+            extensions: Default::default(),
         },
     ];
     let tools = vec![ChatTool::function(
@@ -533,6 +557,21 @@ fn retry_policy_classifies_legacy_and_structured_errors() {
             "unauthorized",
         ))),
         1,
+    ));
+}
+
+#[test]
+fn retry_policy_accepts_custom_retryable_kinds() {
+    use vv_llm::{ErrorKind, VvLlmError};
+
+    let policy = RetryPolicy::new(2).with_retryable_kinds([ErrorKind::InvalidRequest]);
+    assert!(policy.should_retry(
+        &VvLlmError::classified(ErrorKind::InvalidRequest, "retry this request"),
+        1
+    ));
+    assert!(!policy.should_retry(
+        &VvLlmError::classified(ErrorKind::ProviderInternal, "use default set only"),
+        1
     ));
 }
 
@@ -618,11 +657,17 @@ fn normalization_does_not_merge_different_roles_or_images() {
             role: MessageRole::Assistant,
             content: vec![vv_llm::MessageContent::ImageUrl {
                 url: "https://example.com/cat.png".to_string(),
+                detail: None,
+                cache_control: None,
+                extensions: Default::default(),
+                nested_extensions: Default::default(),
+                nested_image: false,
             }],
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
             reasoning_content: None,
+            extensions: Default::default(),
         },
     ];
 

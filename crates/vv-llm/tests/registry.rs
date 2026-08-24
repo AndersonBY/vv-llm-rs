@@ -235,3 +235,79 @@ async fn stream_can_fallback_when_first_chunk_is_an_error() {
     assert_eq!(primary.requests().len(), 1);
     assert_eq!(secondary.requests().len(), 1);
 }
+
+#[tokio::test]
+async fn stream_can_fallback_after_non_visible_prelude_before_error() {
+    let primary = Arc::new(
+        ScriptedChatClient::new("primary", Vec::new()).with_streams(vec![ScriptedStream::new(
+            vec![
+                Ok(vv_llm::ChatStreamDelta {
+                    usage: Some(vv_llm::ChatUsage {
+                        prompt_tokens: Some(1),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                Err(VvLlmError::classified(ErrorKind::Network, "early failure")),
+            ],
+        )]),
+    );
+    let secondary = Arc::new(
+        ScriptedChatClient::new("secondary", Vec::new()).with_streams(vec![ScriptedStream::new(
+            vec![Ok(vv_llm::ChatStreamDelta {
+                content: "secondary".to_string(),
+                ..Default::default()
+            })],
+        )]),
+    );
+    let mut registry = ProviderRegistry::new();
+    register_shared(
+        &mut registry,
+        "primary",
+        primary.clone(),
+        ModelCapabilities::default(),
+    );
+    register_shared(
+        &mut registry,
+        "secondary",
+        secondary.clone(),
+        ModelCapabilities::default(),
+    );
+    let client = FallbackChatClient::new(
+        Arc::new(registry),
+        vec![
+            FallbackRoute::new("primary", "model-a"),
+            FallbackRoute::new("secondary", "model-b"),
+        ],
+    )
+    .unwrap();
+
+    let mut stream = client.create_stream(request()).await.unwrap();
+    assert_eq!(stream.next().await.unwrap().unwrap().content, "secondary");
+    assert_eq!(primary.requests().len(), 1);
+    assert_eq!(secondary.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn fallback_metadata_rejects_stream_requests_explicitly() {
+    let capable = Arc::new(ScriptedChatClient::new(
+        "capable",
+        vec![ScriptedStep::response(response("model-a", "ok"))],
+    ));
+    let mut registry = ProviderRegistry::new();
+    register_shared(
+        &mut registry,
+        "capable",
+        capable,
+        ModelCapabilities::default(),
+    );
+    let client = FallbackChatClient::new(
+        Arc::new(registry),
+        vec![FallbackRoute::new("capable", "model-a")],
+    )
+    .unwrap();
+    let mut request = request();
+    request.options.stream = Some(true);
+    let error = client.create_with_metadata(request).await.unwrap_err();
+    assert!(matches!(error, VvLlmError::Configuration(_)));
+}

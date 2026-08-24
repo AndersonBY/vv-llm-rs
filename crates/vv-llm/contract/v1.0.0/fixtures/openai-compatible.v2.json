@@ -1,10 +1,53 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "protocol": "openai_chat_completions",
   "request_case": {
     "canonical_request": {
       "model": "deepseek-v4-pro",
       "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look at both images",
+              "cache_control": {
+                "type": "ephemeral"
+              }
+            },
+            {
+              "type": "image_url",
+              "url": "https://example.com/flat.png",
+              "detail": "low",
+              "cache_control": {
+                "type": "ephemeral"
+              }
+            },
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "https://example.com/nested.png",
+                "detail": "high"
+              }
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_prior",
+              "name": "lookup",
+              "arguments": "{\"query\":\"prior\"}"
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "prior result",
+          "tool_call_id": "call_prior"
+        },
         {
           "role": "user",
           "content": "hello"
@@ -13,6 +56,9 @@
       "options": {
         "temperature": 0.25,
         "max_tokens": 64,
+        "max_tokens_details": {
+          "reasoning_tokens": 8
+        },
         "stream": false,
         "reasoning_effort": "medium",
         "thinking": {
@@ -36,7 +82,12 @@
           }
         }
       ],
-      "tool_choice": "auto",
+      "tool_choice": {
+        "type": "function",
+        "function": {
+          "name": "lookup"
+        }
+      },
       "extra_body": {
         "trace_id": "fixture-trace"
       }
@@ -46,11 +97,62 @@
       "messages": [
         {
           "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look at both images",
+              "cache_control": {
+                "type": "ephemeral"
+              }
+            },
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "https://example.com/flat.png",
+                "detail": "low"
+              },
+              "cache_control": {
+                "type": "ephemeral"
+              }
+            },
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "https://example.com/nested.png",
+                "detail": "high"
+              }
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_prior",
+              "type": "function",
+              "function": {
+                "name": "lookup",
+                "arguments": "{\"query\":\"prior\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "prior result",
+          "tool_call_id": "call_prior"
+        },
+        {
+          "role": "user",
           "content": "hello"
         }
       ],
       "temperature": 0.25,
       "max_tokens": 64,
+      "max_tokens_details": {
+        "reasoning_tokens": 8
+      },
       "stream": false,
       "reasoning_effort": "medium",
       "thinking": {
@@ -76,7 +178,12 @@
           }
         }
       ],
-      "tool_choice": "auto",
+      "tool_choice": {
+        "type": "function",
+        "function": {
+          "name": "lookup"
+        }
+      },
       "trace_id": "fixture-trace"
     }
   },
@@ -228,67 +335,5 @@
         }
       }
     ]
-  },
-  "retry_after_cases": [
-    {
-      "name": "milliseconds_take_precedence",
-      "headers": {
-        "retry-after-ms": "1500",
-        "retry-after": "9"
-      },
-      "now_unix_seconds": 0,
-      "expected_seconds": 1.5
-    },
-    {
-      "name": "fractional_seconds",
-      "headers": {
-        "retry-after": "2.25"
-      },
-      "now_unix_seconds": 0,
-      "expected_seconds": 2.25
-    },
-    {
-      "name": "http_date",
-      "headers": {
-        "retry-after": "Thu, 01 Jan 1970 00:00:05 GMT"
-      },
-      "now_unix_seconds": 1,
-      "expected_seconds": 4.0
-    },
-    {
-      "name": "past_http_date_clamps_to_zero",
-      "headers": {
-        "retry-after": "Thu, 01 Jan 1970 00:00:05 GMT"
-      },
-      "now_unix_seconds": 10,
-      "expected_seconds": 0.0
-    },
-    {
-      "name": "invalid_headers",
-      "headers": {
-        "retry-after-ms": "invalid",
-        "retry-after": "not-a-date"
-      },
-      "now_unix_seconds": 0,
-      "expected_seconds": null
-    },
-    {
-      "name": "invalid_milliseconds_falls_back_to_seconds",
-      "headers": {
-        "retry-after-ms": "invalid",
-        "retry-after": "3.5"
-      },
-      "now_unix_seconds": 0,
-      "expected_seconds": 3.5
-    },
-    {
-      "name": "negative_milliseconds_clamp_to_zero",
-      "headers": {
-        "retry-after-ms": "-100",
-        "retry-after": "9"
-      },
-      "now_unix_seconds": 0,
-      "expected_seconds": 0.0
-    }
-  ]
+  }
 }

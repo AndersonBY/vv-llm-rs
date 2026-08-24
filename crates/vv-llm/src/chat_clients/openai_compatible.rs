@@ -1,25 +1,24 @@
 use crate::{
     ChatRequest, ChatResponse, ChatStreamDelta, ChatTool, ChatUsage, Message, MessageContent,
-    MessageRole, ToolCall, VvLlmError,
+    MessageRole, ToolCall, ToolChoice, VvLlmError,
 };
-use async_openai::{
-    config::OpenAIConfig,
-    types::chat::{
-        ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessage,
-        ChatCompletionRequestAssistantMessageContent, ChatCompletionRequestMessage,
-        ChatCompletionRequestMessageContentPartImage, ChatCompletionRequestMessageContentPartText,
-        ChatCompletionRequestSystemMessage, ChatCompletionRequestSystemMessageContent,
-        ChatCompletionRequestSystemMessageContentPart, ChatCompletionRequestToolMessage,
-        ChatCompletionRequestToolMessageContent, ChatCompletionRequestUserMessage,
-        ChatCompletionRequestUserMessageContent, ChatCompletionRequestUserMessageContentPart,
-        ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools,
-        CreateChatCompletionRequestArgs, FunctionCall, FunctionObject, ImageUrl, ToolChoiceOptions,
-    },
-    Client,
+use async_openai::types::chat::{
+    ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessage,
+    ChatCompletionRequestAssistantMessageContent, ChatCompletionRequestMessage,
+    ChatCompletionRequestMessageContentPartImage, ChatCompletionRequestMessageContentPartText,
+    ChatCompletionRequestSystemMessage, ChatCompletionRequestSystemMessageContent,
+    ChatCompletionRequestSystemMessageContentPart, ChatCompletionRequestToolMessage,
+    ChatCompletionRequestToolMessageContent, ChatCompletionRequestUserMessage,
+    ChatCompletionRequestUserMessageContent, ChatCompletionRequestUserMessageContentPart,
+    ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools,
+    CreateChatCompletionRequestArgs, FunctionCall, FunctionObject, ImageUrl, ToolChoiceOptions,
 };
 use async_trait::async_trait;
-use futures_util::StreamExt;
+use bytes::Bytes;
+use futures_core::Stream;
+use futures_util::{stream, StreamExt};
 use serde_json::{json, Value};
+use std::{pin::Pin, time::SystemTime};
 
 use super::{ChatClient, ChatStream};
 
@@ -49,6 +48,7 @@ pub struct OpenAiCompatibleChatClient {
     api_base: String,
     api_key: String,
     usage_policy: UsageNormalizationPolicy,
+    http: reqwest::Client,
 }
 
 impl OpenAiCompatibleChatClient {
@@ -79,6 +79,7 @@ impl OpenAiCompatibleChatClient {
             api_base: api_base.into(),
             api_key: api_key.into(),
             usage_policy,
+            http: reqwest::Client::new(),
         }
     }
 
@@ -136,8 +137,10 @@ impl OpenAiCompatibleChatClient {
                     .collect::<Vec<_>>(),
             );
         }
-        if let Some(tool_choice) = request.tool_choice.as_deref() {
-            builder.tool_choice(map_tool_choice(tool_choice)?);
+        if let Some(tool_choice) = request.tool_choice.as_ref() {
+            if let ToolChoice::Mode(tool_choice) = tool_choice {
+                builder.tool_choice(map_tool_choice(tool_choice)?);
+            }
         } else if !request.tools.is_empty() {
             builder.tool_choice(ChatCompletionToolChoiceOption::Mode(
                 ToolChoiceOptions::Auto,
@@ -148,11 +151,19 @@ impl OpenAiCompatibleChatClient {
             .map_err(|error| VvLlmError::Provider(error.to_string()))
     }
 
-    fn client(&self) -> Client<OpenAIConfig> {
-        let config = OpenAIConfig::new()
-            .with_api_key(self.api_key.clone())
-            .with_api_base(self.api_base.clone());
-        Client::with_config(config)
+    fn endpoint(&self) -> String {
+        format!("{}/chat/completions", self.api_base.trim_end_matches('/'))
+    }
+
+    fn request_builder(
+        &self,
+        request: &ChatRequest,
+    ) -> Result<reqwest::RequestBuilder, VvLlmError> {
+        Ok(self
+            .http
+            .post(self.endpoint())
+            .bearer_auth(&self.api_key)
+            .json(&self.to_openai_json(request)?))
     }
 }
 
@@ -163,53 +174,174 @@ impl ChatClient for OpenAiCompatibleChatClient {
     }
 
     async fn create_completion(&self, request: ChatRequest) -> Result<ChatResponse, VvLlmError> {
-        let client = self.client();
-        let response_json: Result<Value, async_openai::error::OpenAIError> =
-            if request_needs_byot(&request) {
-                let request_json = self.to_openai_json(&request)?;
-                client.chat().create_byot(&request_json).await
-            } else {
-                let openai_request = self.to_openai_request(&request)?;
-                client.chat().create_byot(&openai_request).await
-            };
-        let response_json =
-            response_json.map_err(|error| VvLlmError::Provider(error.to_string()))?;
+        let response = self
+            .request_builder(&request)?
+            .send()
+            .await
+            .map_err(|error| VvLlmError::Provider(error.to_string()))?;
+        let response = ensure_success(response).await?;
+        let response_json = response
+            .json::<Value>()
+            .await
+            .map_err(|error| VvLlmError::Provider(error.to_string()))?;
         normalize_openai_completion_json(response_json, self.usage_policy)
     }
 
     async fn create_stream(&self, request: ChatRequest) -> Result<ChatStream, VvLlmError> {
         let request = prepare_stream_request(request);
-        let client = self.client();
-        let stream: Result<
-            std::pin::Pin<
-                Box<
-                    dyn futures_core::Stream<Item = Result<Value, async_openai::error::OpenAIError>>
-                        + Send,
-                >,
-            >,
-            async_openai::error::OpenAIError,
-        > = if request_needs_byot(&request) {
-            let request_json = self.to_openai_json(&request)?;
-            client.chat().create_stream_byot(&request_json).await
-        } else {
-            let openai_request = self.to_openai_request(&request)?;
-            client.chat().create_stream_byot(&openai_request).await
-        };
-        let stream: std::pin::Pin<
-            Box<
-                dyn futures_core::Stream<Item = Result<Value, async_openai::error::OpenAIError>>
-                    + Send,
-            >,
-        > = stream.map_err(|error| VvLlmError::Provider(error.to_string()))?;
-        let mut normalizer = TaggedReasoningNormalizer::for_model(&request.model);
-        let usage_policy = self.usage_policy;
-        Ok(Box::pin(stream.map(move |chunk| {
-            chunk
-                .map_err(|error| VvLlmError::Provider(error.to_string()))
-                .and_then(|chunk| normalize_openai_stream_chunk_json(chunk, usage_policy))
-                .map(|delta| normalizer.normalize(delta))
-        })))
+        let response = self
+            .request_builder(&request)?
+            .send()
+            .await
+            .map_err(|error| VvLlmError::Provider(error.to_string()))?;
+        let response = ensure_success(response).await?;
+        let normalizer = TaggedReasoningNormalizer::for_model(&request.model);
+        Ok(openai_sse_stream(
+            response.bytes_stream(),
+            normalizer,
+            self.usage_policy,
+        ))
     }
+}
+
+async fn ensure_success(response: reqwest::Response) -> Result<reqwest::Response, VvLlmError> {
+    if response.status().is_success() {
+        Ok(response)
+    } else {
+        Err(openai_http_error(response).await)
+    }
+}
+
+async fn openai_http_error(response: reqwest::Response) -> VvLlmError {
+    let status = response.status();
+    let headers = response.headers().clone();
+    let retry_after = crate::utilities::parse_retry_after_headers(&headers, SystemTime::now());
+    let body = response.text().await.unwrap_or_default();
+    let parsed = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
+    let error_value = parsed.get("error").unwrap_or(&parsed);
+    let message = error_value
+        .get("message")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .filter(|message| !message.is_empty())
+        .unwrap_or_else(|| {
+            if body.is_empty() {
+                format!("OpenAI-compatible HTTP {status}")
+            } else {
+                body.clone()
+            }
+        });
+    let provider_code = error_value
+        .get("code")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let request_id = headers
+        .get("x-request-id")
+        .or_else(|| headers.get("request-id"))
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+
+    let mut error = VvLlmError::from_status_with_retry_after(status.as_u16(), message, retry_after);
+    if let VvLlmError::Classified(details) = &mut error {
+        details.provider_code = provider_code;
+        details.request_id = request_id;
+    }
+    error
+}
+
+enum OpenAiSseEvent {
+    Ignore,
+    Done,
+    Data(Value),
+}
+
+fn openai_sse_stream<S>(
+    bytes: S,
+    normalizer: TaggedReasoningNormalizer,
+    usage_policy: UsageNormalizationPolicy,
+) -> ChatStream
+where
+    S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+{
+    type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>;
+    let state: (ByteStream, Vec<u8>, TaggedReasoningNormalizer) =
+        (Box::pin(bytes), Vec::new(), normalizer);
+    Box::pin(stream::unfold(
+        state,
+        move |(mut bytes, mut buffer, mut normalizer)| async move {
+            loop {
+                if let Some(event) = take_sse_event(&mut buffer) {
+                    match parse_openai_sse_event(&event) {
+                        Ok(OpenAiSseEvent::Ignore) => continue,
+                        Ok(OpenAiSseEvent::Done) => return None,
+                        Ok(OpenAiSseEvent::Data(chunk)) => {
+                            let delta = normalize_openai_stream_chunk_json(chunk, usage_policy)
+                                .map(|delta| normalizer.normalize(delta));
+                            return Some((delta, (bytes, buffer, normalizer)));
+                        }
+                        Err(error) => return Some((Err(error), (bytes, buffer, normalizer))),
+                    }
+                }
+
+                match bytes.next().await {
+                    Some(Ok(chunk)) => buffer.extend_from_slice(&chunk),
+                    Some(Err(error)) => {
+                        return Some((
+                            Err(VvLlmError::Provider(error.to_string())),
+                            (bytes, buffer, normalizer),
+                        ))
+                    }
+                    None if buffer.is_empty() => return None,
+                    None => {
+                        let event = std::mem::take(&mut buffer);
+                        match parse_openai_sse_event(&event) {
+                            Ok(OpenAiSseEvent::Ignore | OpenAiSseEvent::Done) => return None,
+                            Ok(OpenAiSseEvent::Data(chunk)) => {
+                                let delta = normalize_openai_stream_chunk_json(chunk, usage_policy)
+                                    .map(|delta| normalizer.normalize(delta));
+                                return Some((delta, (bytes, buffer, normalizer)));
+                            }
+                            Err(error) => return Some((Err(error), (bytes, buffer, normalizer))),
+                        }
+                    }
+                }
+            }
+        },
+    ))
+}
+
+fn take_sse_event(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
+    let (index, delimiter_len) =
+        if let Some(index) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+            (index, 4)
+        } else {
+            let index = buffer.windows(2).position(|window| window == b"\n\n")?;
+            (index, 2)
+        };
+    let event = buffer.drain(..index).collect();
+    buffer.drain(..delimiter_len);
+    Some(event)
+}
+
+fn parse_openai_sse_event(event: &[u8]) -> Result<OpenAiSseEvent, VvLlmError> {
+    let text = String::from_utf8_lossy(event);
+    let mut data = String::new();
+    for line in text.lines() {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if let Some(value) = line.strip_prefix("data:") {
+            if !data.is_empty() {
+                data.push('\n');
+            }
+            data.push_str(value.strip_prefix(' ').unwrap_or(value));
+        }
+    }
+    if data.trim().is_empty() {
+        return Ok(OpenAiSseEvent::Ignore);
+    }
+    if data.trim() == "[DONE]" {
+        return Ok(OpenAiSseEvent::Done);
+    }
+    Ok(OpenAiSseEvent::Data(serde_json::from_str(&data)?))
 }
 
 fn normalize_openai_stream_chunk_json(
@@ -341,7 +473,7 @@ fn to_openai_user_part(
         MessageContent::Text { text, .. } => Ok(ChatCompletionRequestUserMessageContentPart::Text(
             ChatCompletionRequestMessageContentPartText { text: text.clone() },
         )),
-        MessageContent::ImageUrl { url } => {
+        MessageContent::ImageUrl { url, .. } => {
             Ok(ChatCompletionRequestUserMessageContentPart::ImageUrl(
                 ChatCompletionRequestMessageContentPartImage {
                     image_url: ImageUrl {
@@ -385,6 +517,7 @@ fn from_openai_tool_call(tool_call: ChatCompletionMessageToolCalls) -> Option<To
             arguments: function_call.function.arguments,
             index: None,
             extra_content: None,
+            extensions: crate::JsonExtensions::new(),
         }),
         ChatCompletionMessageToolCalls::Custom(_) => None,
     }
@@ -659,6 +792,7 @@ fn normalize_openai_stream_chunk(
                         .unwrap_or_default(),
                     index: Some(tool_call.index as usize),
                     extra_content: None,
+                    extensions: crate::JsonExtensions::new(),
                 });
             }
         }
@@ -667,23 +801,25 @@ fn normalize_openai_stream_chunk(
     TaggedReasoningNormalizer::for_model(&model).normalize(delta)
 }
 
-fn request_needs_byot(request: &ChatRequest) -> bool {
-    !is_empty_extra_body(&request.extra_body)
-        || request.options.has_openai_json_extensions()
-        || request.messages.iter().any(message_needs_byot)
-}
-
-fn message_needs_byot(message: &Message) -> bool {
-    message.reasoning_content.as_deref().is_some()
-        || message
-            .tool_calls
-            .iter()
-            .any(|tool_call| tool_call.extra_content.is_some())
-}
-
 fn merge_openai_request_extensions(json: &mut Value, request: &ChatRequest) {
     merge_openai_option_extensions(json, &request.options);
     merge_extra_body(json, &request.extra_body);
+    merge_object_extensions(json, &request.extensions);
+    if let Some(ToolChoice::Object(tool_choice)) = request.tool_choice.as_ref() {
+        if let Some(target) = json.as_object_mut() {
+            target.insert(
+                "tool_choice".to_string(),
+                Value::Object(tool_choice.clone()),
+            );
+        }
+    }
+    if let Some(tools) = json.get_mut("tools").and_then(Value::as_array_mut) {
+        for (payload_tool, tool) in tools.iter_mut().zip(&request.tools) {
+            if let Some(object) = payload_tool.as_object_mut() {
+                merge_map_extensions(object, &tool.extensions);
+            }
+        }
+    }
     let Some(messages) = json.get_mut("messages").and_then(Value::as_array_mut) else {
         return;
     };
@@ -701,6 +837,9 @@ fn merge_openai_option_extensions(json: &mut Value, options: &crate::ChatRequest
             "max_completion_tokens".to_string(),
             json!(max_completion_tokens),
         );
+    }
+    if let Some(max_tokens_details) = &options.max_tokens_details {
+        target.insert("max_tokens_details".to_string(), max_tokens_details.clone());
     }
     if let Some(top_p) = options.top_p {
         target.insert("top_p".to_string(), json!(top_p));
@@ -768,6 +907,7 @@ fn merge_openai_option_extensions(json: &mut Value, options: &crate::ChatRequest
     if let Some(user) = &options.user {
         target.insert("user".to_string(), json!(user));
     }
+    merge_map_extensions(target, &options.extensions);
 }
 
 fn merge_extra_body(json: &mut Value, extra_body: &Value) {
@@ -785,6 +925,9 @@ fn merge_extra_body(json: &mut Value, extra_body: &Value) {
 }
 
 fn merge_message_extensions(payload: &mut Value, message: &Message) {
+    if let Some(object) = payload.as_object_mut() {
+        merge_map_extensions(object, &message.extensions);
+    }
     if let Some(reasoning_content) = message.reasoning_content.as_deref() {
         if let Some(object) = payload.as_object_mut() {
             object.insert(
@@ -794,16 +937,95 @@ fn merge_message_extensions(payload: &mut Value, message: &Message) {
         }
     }
 
-    let Some(tool_calls) = payload.get_mut("tool_calls").and_then(Value::as_array_mut) else {
+    if let Some(content) = payload.get_mut("content") {
+        merge_message_content_extensions(content, &message.content);
+    }
+
+    if let Some(tool_calls) = payload.get_mut("tool_calls").and_then(Value::as_array_mut) {
+        for (payload_tool_call, tool_call) in tool_calls.iter_mut().zip(&message.tool_calls) {
+            if let Some(object) = payload_tool_call.as_object_mut() {
+                if let Some(extra_content) = &tool_call.extra_content {
+                    object.insert("extra_content".to_string(), extra_content.clone());
+                }
+                merge_map_extensions(object, &tool_call.extensions);
+            }
+        }
+    }
+}
+
+fn merge_message_content_extensions(payload: &mut Value, content: &[MessageContent]) {
+    if content.len() == 1 {
+        if let MessageContent::Text {
+            text,
+            cache_control,
+            extensions,
+        } = &content[0]
+        {
+            if cache_control.is_some() || !extensions.is_empty() {
+                *payload = json!({"type": "text", "text": text});
+                if let Some(cache_control) = cache_control {
+                    payload["cache_control"] = cache_control.clone();
+                }
+                if let Some(object) = payload.as_object_mut() {
+                    merge_map_extensions(object, extensions);
+                }
+            }
+        }
+    }
+
+    let Some(parts) = payload.as_array_mut() else {
         return;
     };
-    for (payload_tool_call, tool_call) in tool_calls.iter_mut().zip(&message.tool_calls) {
-        let Some(extra_content) = &tool_call.extra_content else {
+    for (part, source) in parts.iter_mut().zip(content) {
+        let Some(object) = part.as_object_mut() else {
             continue;
         };
-        if let Some(object) = payload_tool_call.as_object_mut() {
-            object.insert("extra_content".to_string(), extra_content.clone());
+        match source {
+            MessageContent::Text {
+                cache_control,
+                extensions,
+                ..
+            } => {
+                if let Some(cache_control) = cache_control {
+                    object.insert("cache_control".to_string(), cache_control.clone());
+                }
+                merge_map_extensions(object, extensions);
+            }
+            MessageContent::ImageUrl {
+                detail,
+                cache_control,
+                extensions,
+                nested_extensions,
+                ..
+            } => {
+                if let Some(image_url) = object.get_mut("image_url").and_then(Value::as_object_mut)
+                {
+                    if let Some(detail) = detail {
+                        image_url.insert("detail".to_string(), Value::String(detail.clone()));
+                    }
+                    merge_map_extensions(image_url, nested_extensions);
+                }
+                if let Some(cache_control) = cache_control {
+                    object.insert("cache_control".to_string(), cache_control.clone());
+                }
+                merge_map_extensions(object, extensions);
+            }
         }
+    }
+}
+
+fn merge_object_extensions(json: &mut Value, extensions: &crate::JsonExtensions) {
+    if let Some(target) = json.as_object_mut() {
+        merge_map_extensions(target, extensions);
+    }
+}
+
+fn merge_map_extensions(
+    target: &mut serde_json::Map<String, Value>,
+    extensions: &crate::JsonExtensions,
+) {
+    for (key, value) in extensions {
+        target.insert(key.clone(), value.clone());
     }
 }
 
@@ -889,12 +1111,4 @@ fn map_tool_choice(choice: &str) -> Result<ChatCompletionToolChoiceOption, VvLlm
             "unsupported tool_choice value: {choice}"
         ))),
     }
-}
-
-#[allow(dead_code)]
-fn _uses_message_content_type(content: &MessageContent) -> bool {
-    matches!(
-        content,
-        MessageContent::Text { .. } | MessageContent::ImageUrl { .. }
-    )
 }

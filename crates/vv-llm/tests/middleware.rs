@@ -79,6 +79,14 @@ impl ChatMiddlewareV1 for RecordingMiddleware {
             .unwrap()
             .push(format!("{:?}:{}", error.kind(), context.attempt));
     }
+
+    async fn on_stream_start(&self, context: &MiddlewareContext) -> Result<(), VvLlmError> {
+        self.events
+            .lock()
+            .unwrap()
+            .push(format!("stream-start:{}", context.attempt));
+        Ok(())
+    }
 }
 
 #[tokio::test]
@@ -160,4 +168,46 @@ fn middleware_rejects_unknown_api_versions() {
         vec![Arc::new(V2)],
     );
     assert!(matches!(result, Err(VvLlmError::Configuration(_))));
+}
+
+#[tokio::test]
+async fn middleware_stream_start_runs_when_stream_is_established() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let client = MiddlewareChatClient::new(
+        Box::new(FlakyClient {
+            attempts: Arc::new(Mutex::new(1)),
+        }),
+        vec![Arc::new(RecordingMiddleware {
+            events: events.clone(),
+        })],
+    )
+    .unwrap();
+
+    let _stream = client
+        .create_stream(ChatRequest::new(
+            "original",
+            vec![Message::text(MessageRole::User, "hello")],
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(*events.lock().unwrap(), vec!["request:0", "stream-start:1"]);
+}
+
+#[tokio::test]
+async fn middleware_metadata_rejects_stream_requests_explicitly() {
+    let client = MiddlewareChatClient::new(
+        Box::new(FlakyClient {
+            attempts: Arc::new(Mutex::new(1)),
+        }),
+        Vec::new(),
+    )
+    .unwrap();
+    let mut request = ChatRequest::new("original", vec![Message::text(MessageRole::User, "hello")]);
+    request.options.stream = Some(true);
+
+    assert!(matches!(
+        client.create_with_metadata(request).await,
+        Err(VvLlmError::Configuration(_))
+    ));
 }

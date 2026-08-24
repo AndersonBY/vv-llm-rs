@@ -15,6 +15,7 @@ fn public_api_exposes_backend_and_message_types() {
         tools: Vec::new(),
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     assert_eq!(request.messages[0].role, MessageRole::User);

@@ -1,7 +1,17 @@
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use serde::de::{Deserializer, Error as DeError};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Serialize, Serializer};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
+use std::sync::OnceLock;
 use std::time::Duration;
+
+/// Provider-neutral `x_*` extensions accepted by canonical contract objects.
+///
+/// The map is deliberately public so callers can construct canonical values
+/// without depending on a provider-specific payload type.  Runtime adapters
+/// decide whether and where an extension belongs on the provider wire.
+pub type JsonExtensions = BTreeMap<String, serde_json::Value>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -238,17 +248,147 @@ impl fmt::Display for MessageRole {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MessageContent {
     Text {
         text: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         cache_control: Option<serde_json::Value>,
+        extensions: JsonExtensions,
     },
     ImageUrl {
         url: String,
+        detail: Option<String>,
+        cache_control: Option<serde_json::Value>,
+        extensions: JsonExtensions,
+        #[doc(hidden)]
+        nested_extensions: JsonExtensions,
+        #[doc(hidden)]
+        nested_image: bool,
     },
+}
+
+impl Serialize for MessageContent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Text {
+                text,
+                cache_control,
+                extensions,
+            } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("type", "text")?;
+                map.serialize_entry("text", text)?;
+                if let Some(cache_control) = cache_control {
+                    map.serialize_entry("cache_control", cache_control)?;
+                }
+                for (key, value) in extensions {
+                    map.serialize_entry(key, value)?;
+                }
+                map.end()
+            }
+            Self::ImageUrl {
+                url,
+                detail,
+                cache_control,
+                extensions,
+                nested_extensions,
+                nested_image,
+            } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("type", "image_url")?;
+                if *nested_image {
+                    let mut image = serde_json::Map::new();
+                    image.insert("url".to_string(), serde_json::Value::String(url.clone()));
+                    if let Some(detail) = detail {
+                        image.insert(
+                            "detail".to_string(),
+                            serde_json::Value::String(detail.clone()),
+                        );
+                    }
+                    for (key, value) in nested_extensions {
+                        image.insert(key.clone(), value.clone());
+                    }
+                    map.serialize_entry("image_url", &image)?;
+                } else {
+                    map.serialize_entry("url", url)?;
+                    if let Some(detail) = detail {
+                        map.serialize_entry("detail", detail)?;
+                    }
+                }
+                if let Some(cache_control) = cache_control {
+                    map.serialize_entry("cache_control", cache_control)?;
+                }
+                for (key, value) in extensions {
+                    map.serialize_entry(key, value)?;
+                }
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for MessageContent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| D::Error::custom("message content must be an object"))?;
+        match object.get("type").and_then(serde_json::Value::as_str) {
+            Some("text") => Ok(Self::Text {
+                text: object
+                    .get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| D::Error::custom("text content is missing text"))?
+                    .to_string(),
+                cache_control: object.get("cache_control").cloned(),
+                extensions: extensions_from_object(object),
+            }),
+            Some("image_url") => {
+                let nested_image = object
+                    .get("image_url")
+                    .and_then(serde_json::Value::as_object);
+                let url = object
+                    .get("url")
+                    .and_then(serde_json::Value::as_str)
+                    .or_else(|| {
+                        nested_image
+                            .and_then(|image| image.get("url"))
+                            .and_then(serde_json::Value::as_str)
+                    })
+                    .ok_or_else(|| D::Error::custom("image content is missing url"))?;
+                let detail = object
+                    .get("detail")
+                    .and_then(serde_json::Value::as_str)
+                    .or_else(|| {
+                        nested_image
+                            .and_then(|image| image.get("detail"))
+                            .and_then(serde_json::Value::as_str)
+                    })
+                    .map(ToOwned::to_owned);
+                let extensions = extensions_from_object(object);
+                let nested_extensions =
+                    nested_image.map(extensions_from_object).unwrap_or_default();
+                Ok(Self::ImageUrl {
+                    url: url.to_string(),
+                    detail,
+                    cache_control: object.get("cache_control").cloned(),
+                    extensions,
+                    nested_extensions,
+                    nested_image: nested_image.is_some(),
+                })
+            }
+            Some(kind) => Err(D::Error::custom(format!(
+                "unsupported message content type: {kind}"
+            ))),
+            None => Err(D::Error::custom("message content is missing type")),
+        }
+    }
 }
 
 impl MessageContent {
@@ -256,6 +396,7 @@ impl MessageContent {
         Self::Text {
             text: text.into(),
             cache_control: None,
+            extensions: JsonExtensions::new(),
         }
     }
 
@@ -266,13 +407,15 @@ impl MessageContent {
         Self::Text {
             text: text.into(),
             cache_control: Some(cache_control),
+            extensions: JsonExtensions::new(),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Message {
     pub role: MessageRole,
+    #[serde(serialize_with = "serialize_message_content")]
     pub content: Vec<MessageContent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -282,6 +425,73 @@ pub struct Message {
     pub tool_calls: Vec<ToolCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
+    #[serde(flatten)]
+    pub extensions: JsonExtensions,
+}
+
+fn serialize_message_content<S>(
+    content: &Vec<MessageContent>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if let [MessageContent::Text {
+        text,
+        cache_control: None,
+        extensions,
+    }] = content.as_slice()
+    {
+        if extensions.is_empty() {
+            return serializer.serialize_str(text);
+        }
+    }
+    content.serialize(serializer)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum MessageContentWire {
+    Text(String),
+    Parts(Vec<MessageContent>),
+}
+
+#[derive(Debug, Deserialize)]
+struct MessageWire {
+    role: MessageRole,
+    content: MessageContentWire,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    tool_call_id: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<ToolCall>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
+    #[serde(flatten)]
+    extensions: JsonExtensions,
+}
+
+impl<'de> Deserialize<'de> for Message {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = MessageWire::deserialize(deserializer)?;
+        let content = match wire.content {
+            MessageContentWire::Text(text) => vec![MessageContent::text(text)],
+            MessageContentWire::Parts(parts) => parts,
+        };
+        Ok(Self {
+            role: wire.role,
+            content,
+            name: wire.name,
+            tool_call_id: wire.tool_call_id,
+            tool_calls: wire.tool_calls,
+            reasoning_content: wire.reasoning_content,
+            extensions: wire.extensions,
+        })
+    }
 }
 
 impl Message {
@@ -293,6 +503,7 @@ impl Message {
             tool_call_id: None,
             tool_calls: Vec::new(),
             reasoning_content: None,
+            extensions: JsonExtensions::new(),
         }
     }
 
@@ -318,12 +529,18 @@ pub struct ChatRequestOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens_details: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_completion_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_stop",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub stop: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_format: Option<serde_json::Value>,
@@ -363,6 +580,8 @@ pub struct ChatRequestOptions {
     pub top_logprobs: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    #[serde(flatten)]
+    pub extensions: JsonExtensions,
 }
 
 impl ChatRequestOptions {
@@ -373,6 +592,7 @@ impl ChatRequestOptions {
 
     pub fn has_openai_json_extensions(&self) -> bool {
         self.max_completion_tokens.is_some()
+            || self.max_tokens_details.is_some()
             || self.top_p.is_some()
             || !self.stop.is_empty()
             || self.response_format.is_some()
@@ -398,6 +618,70 @@ impl ChatRequestOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ToolChoice {
+    Mode(String),
+    Object(serde_json::Map<String, serde_json::Value>),
+}
+
+impl ToolChoice {
+    pub fn mode(value: impl Into<String>) -> Self {
+        Self::Mode(value.into())
+    }
+
+    pub fn object(value: serde_json::Value) -> Result<Self, String> {
+        value
+            .as_object()
+            .cloned()
+            .map(Self::Object)
+            .ok_or_else(|| "tool_choice object must be a JSON object".to_string())
+    }
+
+    pub fn as_mode(&self) -> Option<&str> {
+        match self {
+            Self::Mode(value) => Some(value),
+            Self::Object(_) => None,
+        }
+    }
+
+    pub fn as_object(&self) -> Option<&serde_json::Map<String, serde_json::Value>> {
+        match self {
+            Self::Mode(_) => None,
+            Self::Object(value) => Some(value),
+        }
+    }
+}
+
+impl From<&str> for ToolChoice {
+    fn from(value: &str) -> Self {
+        Self::mode(value)
+    }
+}
+
+impl From<String> for ToolChoice {
+    fn from(value: String) -> Self {
+        Self::mode(value)
+    }
+}
+
+fn deserialize_stop<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Stop {
+        One(String),
+        Many(Vec<String>),
+    }
+
+    match Stop::deserialize(deserializer)? {
+        Stop::One(value) => Ok(vec![value]),
+        Stop::Many(values) => Ok(values),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<Message>,
@@ -406,9 +690,11 @@ pub struct ChatRequest {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ChatTool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<String>,
+    pub tool_choice: Option<ToolChoice>,
     #[serde(default, skip_serializing_if = "is_empty_extra_body")]
     pub extra_body: serde_json::Value,
+    #[serde(flatten)]
+    pub extensions: JsonExtensions,
 }
 
 impl ChatRequest {
@@ -420,6 +706,7 @@ impl ChatRequest {
             tools: Vec::new(),
             tool_choice: None,
             extra_body: serde_json::Value::Null,
+            extensions: JsonExtensions::new(),
         }
     }
 
@@ -427,6 +714,54 @@ impl ChatRequest {
         self.options = self.options.with_thinking(preference);
         self
     }
+
+    pub fn with_tool_choice(mut self, tool_choice: impl Into<ToolChoice>) -> Self {
+        self.tool_choice = Some(tool_choice.into());
+        self
+    }
+
+    /// Decode and validate the language-neutral canonical contract shape.
+    pub fn from_contract(value: &serde_json::Value) -> Result<Self, VvLlmError> {
+        validate_contract_schema(value)?;
+        Ok(serde_json::from_value(value.clone())?)
+    }
+
+    /// Encode and validate the language-neutral canonical contract shape.
+    pub fn to_contract(&self) -> Result<serde_json::Value, VvLlmError> {
+        let value = serde_json::to_value(self)?;
+        validate_contract_schema(&value)?;
+        Ok(value)
+    }
+}
+
+fn validate_contract_schema(value: &serde_json::Value) -> Result<(), VvLlmError> {
+    let validator = canonical_chat_request_validator()?;
+    validator.validate(value).map_err(|error| {
+        VvLlmError::Configuration(format!(
+            "canonical chat request schema validation failed at {}: {}",
+            error.instance_path(),
+            error
+        ))
+    })
+}
+
+fn canonical_chat_request_validator() -> Result<&'static jsonschema::Validator, VvLlmError> {
+    static VALIDATOR: OnceLock<Result<jsonschema::Validator, String>> = OnceLock::new();
+    VALIDATOR
+        .get_or_init(|| {
+            let schema: serde_json::Value = serde_json::from_str(include_str!(
+                "../contract/v1.0.0/schemas/chat-request.v1.schema.json"
+            ))
+            .map_err(|error| format!("failed to parse canonical chat request schema: {error}"))?;
+            jsonschema::options()
+                .with_draft(jsonschema::Draft::Draft202012)
+                .build(&schema)
+                .map_err(|error| {
+                    format!("failed to compile canonical chat request schema: {error}")
+                })
+        })
+        .as_ref()
+        .map_err(|error| VvLlmError::Configuration(error.clone()))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -437,6 +772,8 @@ pub struct ChatTool {
     pub parameters: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extensions: JsonExtensions,
 }
 
 impl ChatTool {
@@ -450,6 +787,7 @@ impl ChatTool {
             description: Some(description.into()),
             parameters,
             cache_control: None,
+            extensions: JsonExtensions::new(),
         }
     }
 
@@ -468,6 +806,8 @@ pub struct ToolCall {
     pub index: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_content: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extensions: JsonExtensions,
 }
 
 impl ToolCall {
@@ -482,6 +822,7 @@ impl ToolCall {
             arguments: arguments.into(),
             index: None,
             extra_content: None,
+            extensions: JsonExtensions::new(),
         }
     }
 }
@@ -593,6 +934,14 @@ fn is_empty_extra_body(value: &serde_json::Value) -> bool {
         serde_json::Value::Object(object) => object.is_empty(),
         _ => false,
     }
+}
+
+fn extensions_from_object(object: &serde_json::Map<String, serde_json::Value>) -> JsonExtensions {
+    object
+        .iter()
+        .filter(|(key, _)| key.starts_with("x_"))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

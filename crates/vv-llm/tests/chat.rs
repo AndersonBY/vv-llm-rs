@@ -19,6 +19,7 @@ fn openai_compatible_adapter_builds_json_request_shape() {
         tools: Vec::new(),
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -154,6 +155,7 @@ fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
                 tool_call_id: Some("call-1".to_string()),
                 tool_calls: Vec::new(),
                 reasoning_content: None,
+                extensions: Default::default(),
             },
         ],
         options: ChatRequestOptions {
@@ -165,6 +167,7 @@ fn openai_compatible_adapter_maps_system_assistant_tool_and_options() {
         tools: Vec::new(),
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -196,6 +199,7 @@ fn openai_compatible_adapter_serializes_assistant_content_by_message_shape() {
                 tool_call_id: None,
                 tool_calls: Vec::new(),
                 reasoning_content: Some("hidden reasoning".to_string()),
+                extensions: Default::default(),
             },
             Message {
                 role: MessageRole::Assistant,
@@ -204,6 +208,7 @@ fn openai_compatible_adapter_serializes_assistant_content_by_message_shape() {
                 tool_call_id: None,
                 tool_calls: Vec::new(),
                 reasoning_content: None,
+                extensions: Default::default(),
             },
             Message {
                 role: MessageRole::Assistant,
@@ -216,14 +221,17 @@ fn openai_compatible_adapter_serializes_assistant_content_by_message_shape() {
                     arguments: r#"{"query":"rust"}"#.to_string(),
                     index: None,
                     extra_content: None,
+                    extensions: Default::default(),
                 }],
                 reasoning_content: None,
+                extensions: Default::default(),
             },
         ],
         options: Default::default(),
         tools: Vec::new(),
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -253,6 +261,7 @@ fn openai_compatible_adapter_maps_python_style_chat_options() {
         options: ChatRequestOptions {
             temperature: Some(0.1),
             max_tokens: Some(64),
+            max_tokens_details: None,
             max_completion_tokens: Some(96),
             stream: Some(false),
             top_p: Some(0.9),
@@ -276,10 +285,12 @@ fn openai_compatible_adapter_maps_python_style_chat_options() {
             store: Some(false),
             top_logprobs: Some(3),
             user: Some("user-1".to_string()),
+            extensions: Default::default(),
         },
         tools: Vec::new(),
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -342,8 +353,10 @@ fn openai_compatible_adapter_preserves_reasoning_extra_content_and_extra_body() 
                 extra_content: Some(serde_json::json!({
                     "google": {"thought_signature": "sig_123"}
                 })),
+                extensions: Default::default(),
             }],
             reasoning_content: Some("old-thought".to_string()),
+            extensions: Default::default(),
         }],
         options: Default::default(),
         tools: Vec::new(),
@@ -358,6 +371,7 @@ fn openai_compatible_adapter_preserves_reasoning_extra_content_and_extra_body() 
                 }
             }
         }),
+        extensions: Default::default(),
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -392,11 +406,13 @@ fn openai_compatible_adapter_preserves_empty_reasoning_content() {
             tool_call_id: None,
             tool_calls: Vec::new(),
             reasoning_content: Some(String::new()),
+            extensions: Default::default(),
         }],
         options: Default::default(),
         tools: Vec::new(),
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -470,6 +486,7 @@ fn anthropic_adapter_extracts_system_prompt_and_user_messages() {
         tools: Vec::new(),
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_anthropic_json(&request).unwrap();
@@ -500,6 +517,7 @@ fn anthropic_adapter_maps_python_style_chat_options() {
         tools: Vec::new(),
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_anthropic_json(&request).unwrap();
@@ -524,12 +542,18 @@ fn anthropic_adapter_maps_image_content_for_native_multimodal_models() {
                 MessageContent::text("describe this image"),
                 MessageContent::ImageUrl {
                     url: "data:image/png;base64,AAAA".to_string(),
+                    detail: None,
+                    cache_control: None,
+                    extensions: Default::default(),
+                    nested_extensions: Default::default(),
+                    nested_image: false,
                 },
             ],
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
             reasoning_content: None,
+            extensions: Default::default(),
         }],
         options: ChatRequestOptions {
             max_tokens: Some(128),
@@ -538,6 +562,7 @@ fn anthropic_adapter_maps_image_content_for_native_multimodal_models() {
         tools: Vec::new(),
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_anthropic_json(&request).unwrap();
@@ -570,6 +595,7 @@ fn anthropic_adapter_maps_tools_and_multi_turn_tool_messages() {
                     r#"{"location":"New York"}"#,
                 )],
                 reasoning_content: None,
+                extensions: Default::default(),
             },
             Message {
                 role: MessageRole::Tool,
@@ -578,6 +604,7 @@ fn anthropic_adapter_maps_tools_and_multi_turn_tool_messages() {
                 tool_call_id: Some("toolu_1".to_string()),
                 tool_calls: Vec::new(),
                 reasoning_content: None,
+                extensions: Default::default(),
             },
         ],
         options: ChatRequestOptions {
@@ -595,8 +622,9 @@ fn anthropic_adapter_maps_tools_and_multi_turn_tool_messages() {
                 "required": ["location"]
             }),
         )],
-        tool_choice: Some("auto".to_string()),
+        tool_choice: Some("auto".into()),
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_anthropic_json(&request).unwrap();
@@ -626,11 +654,13 @@ fn anthropic_adapter_preserves_cache_control_extensions() {
                 content: vec![MessageContent::Text {
                     text: "stable system block".to_string(),
                     cache_control: Some(serde_json::json!({"type": "ephemeral"})),
+                    extensions: Default::default(),
                 }],
                 name: None,
                 tool_call_id: None,
                 tool_calls: Vec::new(),
                 reasoning_content: None,
+                extensions: Default::default(),
             },
             Message {
                 role: MessageRole::User,
@@ -639,6 +669,7 @@ fn anthropic_adapter_preserves_cache_control_extensions() {
                 tool_call_id: None,
                 tool_calls: Vec::new(),
                 reasoning_content: None,
+                extensions: Default::default(),
             },
         ],
         options: ChatRequestOptions {
@@ -655,9 +686,11 @@ fn anthropic_adapter_preserves_cache_control_extensions() {
                 }
             }),
             cache_control: Some(serde_json::json!({"type": "ephemeral"})),
+            extensions: Default::default(),
         }],
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_anthropic_json(&request).unwrap();
@@ -684,17 +717,24 @@ fn openai_adapter_maps_image_content_for_vision_models() {
                 MessageContent::text("describe this image"),
                 MessageContent::ImageUrl {
                     url: "data:image/png;base64,AAAA".to_string(),
+                    detail: None,
+                    cache_control: None,
+                    extensions: Default::default(),
+                    nested_extensions: Default::default(),
+                    nested_image: false,
                 },
             ],
             name: None,
             tool_call_id: None,
             tool_calls: Vec::new(),
             reasoning_content: None,
+            extensions: Default::default(),
         }],
         options: Default::default(),
         tools: Vec::new(),
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -729,8 +769,9 @@ fn openai_adapter_maps_tools_and_tool_choice() {
                 "required": ["location"]
             }),
         )],
-        tool_choice: Some("auto".to_string()),
+        tool_choice: Some("auto".into()),
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -759,6 +800,7 @@ fn openai_adapter_maps_multi_turn_tool_messages() {
                     r#"{"location":"New York"}"#,
                 )],
                 reasoning_content: None,
+                extensions: Default::default(),
             },
             Message {
                 role: MessageRole::Tool,
@@ -767,12 +809,14 @@ fn openai_adapter_maps_multi_turn_tool_messages() {
                 tool_call_id: Some("call_1".to_string()),
                 tool_calls: Vec::new(),
                 reasoning_content: None,
+                extensions: Default::default(),
             },
         ],
         options: Default::default(),
         tools: Vec::new(),
         tool_choice: None,
         extra_body: serde_json::Value::Null,
+        extensions: Default::default(),
     };
 
     let json = client.to_openai_json(&request).unwrap();
@@ -1132,11 +1176,13 @@ async fn openai_compatible_completion_sends_empty_content_for_reasoning_only_mes
                 tool_call_id: None,
                 tool_calls: Vec::new(),
                 reasoning_content: Some("hidden reasoning".to_string()),
+                extensions: Default::default(),
             }],
             options: Default::default(),
             tools: Vec::new(),
             tool_choice: None,
             extra_body: serde_json::Value::Null,
+            extensions: Default::default(),
         })
         .await
         .unwrap();
@@ -1441,6 +1487,93 @@ async fn openai_compatible_stream_preserves_explicit_stream_options() {
 }
 
 #[tokio::test]
+async fn openai_compatible_completion_preserves_http_error_metadata() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let _request = read_http_request(&mut socket).await;
+        let body = r#"{"error":{"message":"slow down","code":"rate_limit_exceeded"}}"#;
+        let response = format!(
+            "HTTP/1.1 429 Too Many Requests\r\ncontent-type: application/json\r\nretry-after-ms: 1500\r\nx-request-id: req-openai-429\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        use tokio::io::AsyncWriteExt;
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let client = OpenAiCompatibleChatClient::new("provider-model", api_base, "sk-test");
+    let error = client
+        .create_completion(ChatRequest::new(
+            "provider-model",
+            vec![Message::text(MessageRole::User, "hello")],
+        ))
+        .await
+        .unwrap_err();
+    server.await.unwrap();
+
+    match error {
+        vv_llm::VvLlmError::Classified(details) => {
+            assert_eq!(details.kind, vv_llm::ErrorKind::RateLimited);
+            assert_eq!(details.status_code, Some(429));
+            assert_eq!(
+                details.provider_code.as_deref(),
+                Some("rate_limit_exceeded")
+            );
+            assert_eq!(details.retry_after_seconds, Some(1.5));
+            assert_eq!(details.request_id.as_deref(), Some("req-openai-429"));
+        }
+        other => panic!("expected classified HTTP error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn openai_compatible_stream_preserves_http_error_metadata() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let _request = read_http_request(&mut socket).await;
+        let body = r#"{"error":{"message":"slow down","code":"rate_limit_exceeded"}}"#;
+        let response = format!(
+            "HTTP/1.1 429 Too Many Requests\r\ncontent-type: application/json\r\nretry-after: 2.25\r\nrequest-id: req-openai-stream-429\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        use tokio::io::AsyncWriteExt;
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let client = OpenAiCompatibleChatClient::new("provider-model", api_base, "sk-test");
+    let error = match client
+        .create_stream(ChatRequest::new(
+            "provider-model",
+            vec![Message::text(MessageRole::User, "hello")],
+        ))
+        .await
+    {
+        Ok(_) => panic!("expected rate-limit error"),
+        Err(error) => error,
+    };
+    server.await.unwrap();
+
+    match error {
+        vv_llm::VvLlmError::Classified(details) => {
+            assert_eq!(details.kind, vv_llm::ErrorKind::RateLimited);
+            assert_eq!(details.status_code, Some(429));
+            assert_eq!(
+                details.provider_code.as_deref(),
+                Some("rate_limit_exceeded")
+            );
+            assert_eq!(details.retry_after_seconds, Some(2.25));
+            assert_eq!(details.request_id.as_deref(), Some("req-openai-stream-429"));
+        }
+        other => panic!("expected classified HTTP error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn anthropic_direct_completion_uses_json_path_for_cache_control_and_tools() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let api_base = format!("http://{}", listener.local_addr().unwrap());
@@ -1506,6 +1639,7 @@ async fn anthropic_direct_completion_uses_json_path_for_cache_control_and_tools(
                 tool_call_id: None,
                 tool_calls: Vec::new(),
                 reasoning_content: None,
+                extensions: Default::default(),
             }],
             options: ChatRequestOptions {
                 max_tokens: Some(128),
@@ -1520,6 +1654,7 @@ async fn anthropic_direct_completion_uses_json_path_for_cache_control_and_tools(
             .with_cache_control(serde_json::json!({"type": "ephemeral"}))],
             tool_choice: None,
             extra_body: serde_json::Value::Null,
+            extensions: Default::default(),
         })
         .await
         .unwrap();

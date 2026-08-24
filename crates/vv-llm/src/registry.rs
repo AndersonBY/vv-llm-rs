@@ -146,6 +146,11 @@ impl FallbackChatClient {
         &self,
         request: ChatRequest,
     ) -> Result<CompletionResult<ChatResponse>, VvLlmError> {
+        if request.options.stream == Some(true) {
+            return Err(VvLlmError::Configuration(
+                "create_with_metadata does not support streaming; use create_stream".to_string(),
+            ));
+        }
         let started = Instant::now();
         let (response, fallback_index, route) = self.execute_completion(request).await?;
         let metadata = ResponseMetadata {
@@ -197,26 +202,39 @@ impl ChatClient for FallbackChatClient {
                 Err(error) => return Err(error),
             };
 
-            match provider_stream.next().await {
-                Some(Ok(first)) => {
-                    return Ok(Box::pin(
-                        stream::once(async move { Ok(first) }).chain(provider_stream),
-                    ));
+            // A provider may emit role/usage/done/empty metadata before any
+            // user-visible output. Buffer that prelude so a retryable failure
+            // before the first visible delta can still select the next route.
+            let mut prelude = Vec::new();
+            loop {
+                match provider_stream.next().await {
+                    Some(Ok(delta)) => {
+                        let visible = is_visible_stream_delta(&delta);
+                        prelude.push(Ok(delta));
+                        if visible {
+                            return Ok(Box::pin(stream::iter(prelude).chain(provider_stream)));
+                        }
+                    }
+                    None => return Ok(Box::pin(stream::iter(prelude))),
+                    Some(Err(error))
+                        if self.fallback_on.contains(&error.kind())
+                            && index + 1 < self.routes.len() =>
+                    {
+                        last_error = Some(error);
+                        break;
+                    }
+                    Some(Err(error)) => return Err(error),
                 }
-                None => return Ok(Box::pin(stream::empty())),
-                Some(Err(error))
-                    if self.fallback_on.contains(&error.kind())
-                        && index + 1 < self.routes.len() =>
-                {
-                    last_error = Some(error);
-                }
-                Some(Err(error)) => return Err(error),
             }
         }
         Err(last_error.unwrap_or_else(|| {
             VvLlmError::Configuration("no fallback route was eligible".to_string())
         }))
     }
+}
+
+fn is_visible_stream_delta(delta: &crate::ChatStreamDelta) -> bool {
+    !delta.content.is_empty() || !delta.reasoning_content.is_empty() || !delta.tool_calls.is_empty()
 }
 
 fn default_fallback_errors() -> HashSet<ErrorKind> {
