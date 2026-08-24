@@ -8,6 +8,7 @@ These docs are the project knowledge base for `vv-llm-rs`. `AGENTS.md` is only t
 - `PROVIDERS.md` - provider adapter behavior for OpenAI-compatible APIs, Anthropic direct, Anthropic Bedrock, Vertex OpenAI-compatible endpoints, embeddings, and rerank.
 - `TESTING.md` - local tests, live integration tests, fixture policy, and coverage expectations.
 - `DEVELOPMENT.md` - common workflows for adding providers, changing streaming, changing settings, and updating tokenizer behavior.
+- `CONTRACT.md` - vendored language-neutral schemas, fixtures, catalog, lock verification, and synchronization.
 - `SECURITY.md` - credential handling, secret-bearing fixtures, logs, auth flows, and safe debugging.
 - `RELEASE.md` - crates.io release setup, version tags, and publish workflow behavior.
 

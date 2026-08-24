@@ -9,6 +9,27 @@ This document captures common change workflows for `vv-llm-rs`.
 - Check `git status --short` and preserve unrelated worktree changes.
 - Do not inspect or print `crates/vv-llm/tests/fixtures/dev_settings.json` unless the task is explicitly about live credentials, and even then never reveal values.
 
+## Updating Contract Artifacts
+
+The language-neutral schemas, deterministic fixtures, and default catalog are
+vendored under `crates/vv-llm/contract/v1.0.0/`. A read-only check uses only
+the checked-in tree:
+
+```bash
+python scripts/sync_contract.py --check
+```
+
+To synchronize, provide an explicit contract release directory:
+
+```bash
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.0.0
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.0.0 python scripts/sync_contract.py
+```
+
+The check is also the first release CI gate. Never put credentials or live
+provider payloads in this artifact tree; use the separately documented
+live-test settings workflow instead.
+
 ## Adding A Chat Backend
 
 1. Decide whether the backend is truly OpenAI-compatible or needs a native adapter.

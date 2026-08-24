@@ -24,6 +24,11 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Check vendored vv-llm contract
+        run: |
+          python3 scripts/sync_contract.py --check
+          python3 -m unittest scripts/test_sync_contract.py
+
       - name: Check tag matches crate version
         run: |
           set -euo pipefail

@@ -19,12 +19,12 @@ Used for OpenAI-style `/v1/chat/completions` APIs including OpenAI, DeepSeek, Qw
 
 Implementation notes:
 
-- Uses `async-openai`.
+- Uses typed `async-openai` request/response shapes with a direct reqwest transport so non-success responses retain HTTP status, request id, and `Retry-After` metadata.
 - Maps `MessageRole::System`, `User`, `Assistant`, and `Tool` to OpenAI chat messages.
-- Maps text and image URL parts for multimodal user messages.
+- Maps text and image URL parts for multimodal user messages, preserving canonical image `detail`, `cache_control`, and `x_*` metadata on the OpenAI-compatible wire payload.
 - Serializes empty and reasoning-only assistant messages without tool calls as `content: ""`; reasoning stays in `reasoning_content`, while tool-call-only messages continue to omit `content`.
 - Maps `ChatTool` into function tools.
-- Supports `tool_choice` values accepted by the adapter.
+- OpenAI-compatible requests support string tool modes and object `tool_choice`; direct Anthropic and Bedrock adapters accept only their mapped string modes and reject generic object forms.
 - Forwards `ChatRequestOptions::thinking` as the top-level `thinking` request field when explicitly set.
 - `ThinkingPreference` is normalized into that existing field before the adapter runs, so typed and legacy callers share the same request path.
 - Normalizes completion content, tool calls, and usage into `ChatResponse`.

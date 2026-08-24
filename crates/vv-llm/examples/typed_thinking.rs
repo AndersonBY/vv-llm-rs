@@ -4,7 +4,7 @@ use vv_llm::{ChatRequest, Message, MessageRole, ThinkingPreference, VvLlmError};
 
 #[tokio::main]
 async fn main() -> Result<(), VvLlmError> {
-    let (client, model) = common::load_deepseek_client()?;
+    let (client, model) = common::load_chat_client()?;
     let response = client
         .create(
             ChatRequest::new(

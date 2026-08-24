@@ -61,10 +61,23 @@ The existing `create_completion(request)` call and
 `ThinkingPreference` provides typed default, enabled, budgeted, disabled, and
 provider-defined states without changing the provider wire payload.
 
+`ChatRequest` is the canonical provider-neutral request and derives serde
+codec support for the shared contract shape, including string or object
+`tool_choice`. Use `create(request)` for a non-streaming completion. Streaming
+is intentionally a separate return type: call `create_stream(request)` rather
+than expecting `create` to dispatch from `request.options.stream`.
+
+Use `ChatRequest::from_contract(&value)` and `to_contract()` at the
+language-neutral contract boundary. These methods require a non-empty model
+and preserve canonical `x_*` extensions plus image `detail` and
+`cache_control`. Direct serde accepts the runtime's default model value.
+Because extension maps and image metadata are public fields, exhaustive struct
+literals and patterns must include them.
+
 ### Middleware, Retry, And Metadata
 
-Existing `create_completion` calls remain unchanged. Add the optional middleware wrapper
-when an application needs stable `v1` hooks, classified retry, or response metadata:
+Use `MiddlewareChatClient` for stable `v1` hooks, classified retry, and
+response metadata:
 
 ```rust
 use std::time::Duration;
@@ -86,6 +99,12 @@ println!(
     result.metadata.latency_ms,
 );
 ```
+
+`create_with_metadata` is the completion metadata API. For streaming requests,
+use `create_stream`; passing `stream: true` to the metadata API returns a
+configuration error instead of silently dispatching as a completion. A custom
+retry set can be selected with
+`RetryPolicy::new(3).with_retryable_kinds([ErrorKind::RateLimited, ErrorKind::Network])`.
 
 `ErrorKind` separates authentication, rate limiting, network, timeout, invalid
 request, context length, content policy, missing model, provider internal,
@@ -204,6 +223,12 @@ OpenAI-compatible streams normalize content, tool calls, usage chunks, and tagge
 
 For OpenAI-compatible clients, `create_stream` always sends `stream: true`. When `ChatRequestOptions::stream_options` is not provided, it also sends `{"include_usage": true}` so providers that require an explicit opt-in can return the final usage chunk. Caller-provided `stream_options`, including `{"include_usage": false}`, are preserved unchanged. This default does not affect non-streaming requests or other provider adapters.
 
+Fallback streaming buffers metadata-only or empty prelude deltas until the
+first visible content, reasoning, or tool-call delta. A retryable error before
+that boundary may select another route; errors after it are propagated without
+replaying output. Rust middleware `on_stream_start` means that the provider
+stream has been established, before the first item is yielded.
+
 ## Usage Accounting
 
 `ChatUsage` keeps the legacy `prompt_tokens`, `completion_tokens`, and `total_tokens` fields and also exposes provider-neutral `input_tokens`, `output_tokens`, `cache_read_input_tokens`, and `cache_creation_input_tokens`. All fields are optional: a missing cache value is `None`, while an explicitly reported zero is `Some(0)`.
@@ -235,7 +260,7 @@ request.tools = vec![ChatTool::function(
             "required": ["location"]
         }),
     )];
-request.tool_choice = Some("required".to_string());
+request.tool_choice = Some("required".into());
 
 let response = client.create(request).await?;
 for call in response.tool_calls {
@@ -280,15 +305,23 @@ let message = Message {
     content: vec![
         MessageContent::Text {
             text: "What is in this image?".to_string(),
+            cache_control: None,
+            extensions: Default::default(),
         },
         MessageContent::ImageUrl {
             url: "data:image/png;base64,...".to_string(),
+            detail: None,
+            cache_control: None,
+            extensions: Default::default(),
+            nested_extensions: Default::default(),
+            nested_image: false,
         },
     ],
     name: None,
     tool_call_id: None,
     tool_calls: Vec::new(),
     reasoning_content: None,
+    extensions: Default::default(),
 };
 ```
 
@@ -361,7 +394,7 @@ Anthropic Bedrock endpoints are configured with `endpoint_type: "anthropic_bedro
 
 - **Unified chat API** — one `ChatClient` trait for completions and streaming
 - **Settings resolution** — load model catalogs, endpoint bindings, provider ids, and transport metadata from JSON
-- **OpenAI-compatible adapters** — chat and embeddings through `async-openai`
+- **OpenAI-compatible adapters** — typed chat normalization with header-preserving HTTP transport, plus async-openai embeddings
 - **Provider extensions** — typed reasoning content, request `extra_body`, and tool-call `extra_content`
 - **Anthropic support** — direct Messages API plus Bedrock Converse transport
 - **Streaming normalization** — provider stream events become `ChatStreamDelta`
@@ -378,8 +411,9 @@ Anthropic Bedrock endpoints are configured with `endpoint_type: "anthropic_bedro
 
 ## Examples
 
-Cargo examples for typed thinking, streaming, middleware metadata, and explicit
-fallback are available in [`crates/vv-llm/examples/`](crates/vv-llm/examples/README.md).
+Runnable Cargo examples for basic chat, streaming, tools, multimodal input,
+contract JSON, typed thinking, middleware metadata, and explicit fallback are
+listed in [`crates/vv-llm/examples/`](crates/vv-llm/examples/README.md).
 
 ## Utilities
 
@@ -397,7 +431,7 @@ use vv_llm::utilities::{
 | `count_tokens_with_settings` | Prefer configured token server and provider tokenizer endpoints, then fall back locally |
 | `count_message_tokens` | Count formatted text, image placeholders, and tools for chat requests |
 | `parse_retry_after` | Parse `retry-after-ms` or numeric/HTTP-date `Retry-After` into a `Duration` |
-| `RetryPolicy` | Backoff, jitter, retryable classification, and total-deadline policy |
+| `RetryPolicy` | Backoff, jitter, configurable retryable classification, and total-deadline policy |
 | `execute_with_retry` | Execute an async operation under a `RetryPolicy` |
 
 ## Project Structure
@@ -406,8 +440,10 @@ use vv_llm::utilities::{
 vv-llm-rs/
   Cargo.toml
   crates/vv-llm/
+    contract/v1.0.0/      # locked language-neutral schemas, fixtures, and catalog
     src/
       chat_clients/       # Chat clients, stream normalization, Vertex auth
+      contract.rs         # contract metadata and embedded manifest/lock accessors
       embedding_clients/  # OpenAI-compatible embedding client
       rerank_clients/     # Custom JSON HTTP rerank client
       settings.rs         # Settings parsing and model resolution
@@ -422,15 +458,33 @@ vv-llm-rs/
 Run checks from the workspace root:
 
 ```bash
+python scripts/sync_contract.py --check
 cargo fmt --check
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Live integration tests are ignored by default. Put real credentials in `crates/vv-llm/tests/fixtures/dev_settings.json`, or set `VV_LLM_SETTINGS_JSON`, then run:
+The crate exposes `contract_metadata()`, `contract_manifest_json()`, and
+`contract_consumer_lock_json()` for diagnostics. Contract checks are offline by
+default; synchronization requires an explicit source:
 
 ```bash
-VV_LLM_RUN_LIVE_TESTS=1 ./scripts/run_live_tests.sh
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.0.0
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.0.0 python scripts/sync_contract.py
+```
+
+`python scripts/sync_contract.py --check` validates the packaged contract copy.
+
+The [Python/Rust capability matrix](docs/ARCHITECTURE.md#pythonrust-capability-matrix)
+records intentional differences in providers, rate limiting, token servers,
+middleware, retry, fallback, and scripted clients.
+
+Live integration tests are ignored by default. Set an explicit secret-bearing
+settings path before running a real provider test:
+
+```bash
+VV_LLM_SETTINGS_JSON=/secure/path/llm_settings.json VV_LLM_RUN_LIVE_TESTS=1 \
+  ./scripts/run_live_tests.sh
 ```
 
 Engineering documentation lives in [`docs/`](./docs/README.md). Start there for architecture notes, provider adapter behavior, live-test policy, security rules, and maintenance workflows.

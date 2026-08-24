@@ -5,7 +5,7 @@ use vv_llm::{ChatRequest, Message, MessageRole, MiddlewareChatClient, RetryPolic
 
 #[tokio::main]
 async fn main() -> Result<(), VvLlmError> {
-    let (client, model) = common::load_deepseek_client()?;
+    let (client, model) = common::load_chat_client()?;
     let runtime = MiddlewareChatClient::new(client, Vec::new())?.with_retry_policy(
         RetryPolicy::new(3)
             .with_base_delay(Duration::from_millis(250))

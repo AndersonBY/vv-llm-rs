@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use vv_llm::{create_chat_client_from_resolved, BackendType, ChatClient, LlmSettings, VvLlmError};
 
-pub fn load_deepseek_client() -> Result<(Box<dyn ChatClient>, String), VvLlmError> {
+pub fn load_chat_client() -> Result<(Box<dyn ChatClient>, String), VvLlmError> {
     let settings_path = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
@@ -12,7 +12,17 @@ pub fn load_deepseek_client() -> Result<(Box<dyn ChatClient>, String), VvLlmErro
             )
         })?;
     let settings = LlmSettings::from_json_file(settings_path)?;
-    let resolved = settings.resolve_chat_model(BackendType::DeepSeek, "deepseek-v4-flash")?;
+    let backend_name = std::env::var("VV_LLM_BACKEND").map_err(|_| {
+        VvLlmError::Configuration("set VV_LLM_BACKEND for the selected settings file".to_string())
+    })?;
+    let backend: BackendType =
+        serde_json::from_value(serde_json::Value::String(backend_name.clone())).map_err(|_| {
+            VvLlmError::Configuration(format!("unsupported VV_LLM_BACKEND: {backend_name}"))
+        })?;
+    let model = std::env::var("VV_LLM_MODEL").map_err(|_| {
+        VvLlmError::Configuration("set VV_LLM_MODEL for the selected settings file".to_string())
+    })?;
+    let resolved = settings.resolve_chat_model(backend, &model)?;
     let model = resolved.model_id.clone();
     Ok((create_chat_client_from_resolved(resolved)?, model))
 }

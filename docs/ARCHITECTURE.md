@@ -11,10 +11,14 @@ vv-llm-rs/
   docs/
   scripts/
     run_live_tests.sh
+    sync_contract.py
+    test_sync_contract.py
   crates/vv-llm/
     Cargo.toml
+    contract/v1.0.0/       # locked language-neutral schemas, fixtures, and catalog
     src/
       lib.rs
+      contract.rs
       types.rs
       settings.rs
       chat_clients/
@@ -37,6 +41,7 @@ vv-llm-rs/
 - `EmbeddingClient`, `create_embedding_client`.
 - `RerankClient`, `create_rerank_client`.
 - `LlmSettings`, `EndpointConfig`, `ModelConfig`, `EndpointBinding`, `ResolvedModelConfig`.
+- `ContractMetadata`, `contract_metadata`, and embedded manifest/consumer-lock accessors.
 - Provider-neutral data types from `types.rs`.
 
 Public request and response structs should stay provider-neutral. Provider-specific JSON, SDK request builders, stream event shapes, and auth mechanics belong in adapter modules.
@@ -48,6 +53,7 @@ Public request and response structs should stay provider-neutral. Provider-speci
 - `BackendType` identifies chat backends known by settings resolution and factory routing.
 - `Message`, `MessageRole`, and `MessageContent` represent text, image URL, assistant tool-call turns, and tool-result turns.
 - `ChatRequest` carries model, messages, options (including explicit thinking configuration), tools, and tool choice.
+- `ChatRequest::from_contract`/`to_contract` encode the canonical contract shape, require a non-empty model, and preserve string or object `tool_choice`, string-or-array stop values, `x_*` extensions, and image metadata. Direct serde accepts the runtime default model value; adapters own provider wire conversion.
 - `ThinkingPreference` maps typed default/enabled/budgeted/disabled/provider-defined intent into the existing optional provider JSON field, preserving source and wire compatibility.
 - `ModelCapabilities` describes provider-neutral tools, structured-output, modality, streaming, and thinking support. `ModelConfig` also carries the optional `max_image_dimension` input limit, and `ModelConfig::capabilities()` reads explicit catalog metadata and derives legacy fields when metadata is absent.
 - `ChatResponse` carries normalized content, tool calls, and usage.
@@ -127,6 +133,35 @@ or image input disqualify a route before its factory is called.
 Streaming retry and fallback stop at the first visible chunk. Establishment errors
 and an error received as the first stream item may select another route; errors
 after output begins are propagated without replay.
+
+`ChatMiddlewareV1::on_stream_start` has a separate boundary: it runs when the
+provider stream is established, before the first item is yielded, including any
+metadata-only prelude. `create_with_metadata` returns completion metadata and
+explicitly rejects stream requests because its `CompletionResult<ChatResponse>`
+type cannot represent a boxed stream safely.
+
+`ChatClient::create` is intentionally the non-streaming completion entry point.
+Call `ChatClient::create_stream` for a boxed stream; the `stream` option does not
+change the return type of `create`.
+
+## Python/Rust Capability Matrix
+
+The Rust crate targets the shared public contract, but it is not a feature-for-
+feature replacement for the Python package. Keep these boundaries explicit:
+
+| Capability | Python `vv-llm` | Rust `vv-llm-rs` | Compatibility boundary |
+|---|---|---|---|
+| Middleware | Sync and async clients; request, response, and error hooks | Async `MiddlewareChatClient`; request, response, stream-start, and error hooks | Hook names and async execution are Rust-specific; both expose versioned middleware intent |
+| Retry | Sync and async classified retry with backoff and `Retry-After` | Async `RetryPolicy`/`execute_with_retry` with backoff, jitter, deadline, `Retry-After`, and configurable retryable kinds | No synchronous Rust client layer |
+| Metadata | `CompletionResult` plus provider/model/attempt/latency metadata | `CompletionResult` plus `ResponseMetadata`, fallback index, ids, attempts, and latency | Field availability depends on adapter response data |
+| Registry/fallback | Sync and async explicit `ProviderRegistry` and capability-aware routes | Explicit async `ProviderRegistry`/`FallbackChatClient`, capability filtering, and first-visible-chunk boundary | Rust does not discover providers or provide a sync facade |
+| Scripted client | Sync and async scripted completion/error/stream doubles | Public async `ScriptedChatClient` with deterministic completion/error/stream steps | Rust double does not emulate provider wire protocols |
+| Chat providers | Native sync/async adapters for 16 named backends, plus Azure/Vertex/Bedrock deployments | Async clients; named OpenAI-compatible backends share one adapter, with native Anthropic, Bedrock, and Vertex paths | Provider-specific Python quirks are not automatically present in generic Rust routing; Azure metadata parses but has no dedicated Rust wire adapter |
+| Embedding/rerank | Sync and async OpenAI, Cohere, Jina, Voyage, SiliconFlow, Local, and custom mapping paths | Async OpenAI-compatible embeddings and custom JSON HTTP rerank | No Rust sync facade or dedicated Cohere/Voyage embedding protocol adapter |
+| Rate limiting | Active memory, Redis, and DiskCache RPM/TPM limiters (optional extras) | Parses endpoint/global RPM/TPM settings but does not enforce a local/distributed limiter | Rust retry handling of 429/`Retry-After` is not rate-limit enforcement |
+| Token counting | Local model tokenizers, provider/token-server fallback, and optional FastAPI token server | Local `tiktoken-rs`, configured token-server/provider-tokenizer fallback, no bundled server executable | Rust consumes a token server; it does not ship the Python FastAPI server |
+| Settings compatibility | V1 upgrade and V2 `backends`/retrieval fields | V2 `backends`/retrieval fields, string/object bindings, and transport metadata; top-level V1 is intentionally not upgraded | Use the versioned contract and do not assume Python's V1 migration behavior |
+| Contract artifacts | Vendored `vv-llm-contract` 1.0.0 schemas, fixtures, catalog, and lock | Vendored same release with lock SHA pin and compile-time catalog/fixture use | JSON wire semantics are shared; runtime orchestration remains language-specific |
 
 ## Adapter Boundaries
 

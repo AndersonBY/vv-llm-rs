@@ -7,6 +7,8 @@ Tests are split into local deterministic tests and opt-in live integration tests
 Run from the repository root:
 
 ```bash
+python scripts/sync_contract.py --check
+python -m unittest scripts/test_sync_contract.py
 cargo fmt --check
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
@@ -28,7 +30,7 @@ Run the full local suite after code changes that touch public types, settings, p
 - `crates/vv-llm/tests/chat.rs` checks chat adapter request shapes, factory routing, multimodal mapping, tools, multi-turn tool messages, stream normalization, usage/cache normalization, and Vertex token cache behavior.
 - `crates/vv-llm/tests/retrieval.rs` checks embedding and rerank request mapping.
 - `crates/vv-llm/tests/utilities.rs` checks message normalization, tokenizer behavior, fallback counting, and retry metadata.
-- `crates/vv-llm/tests/protocol_fixtures.rs` checks the same versioned OpenAI-compatible request, response, stream, and retry-header fixtures as the Python package.
+- `crates/vv-llm/tests/protocol_fixtures.rs` checks the versioned OpenAI-compatible request, response, and stream fixture plus the separate retry-header fixture, loaded from `crates/vv-llm/contract/v1.0.0/fixtures/`.
 - `crates/vv-llm/tests/middleware.rs` checks versioned hooks, retry integration, and response metadata.
 - `crates/vv-llm/tests/registry.rs` checks capability-aware fallback, non-fallback errors, and the first-visible-chunk boundary.
 - `crates/vv-llm/tests/scripted_client.rs` checks deterministic scripted responses, errors, request recording, and streams.
@@ -46,8 +48,14 @@ Usage normalization tests should distinguish a missing field from explicit zero,
 Live tests are ignored by default and call real provider APIs. They run through:
 
 ```bash
-VV_LLM_RUN_LIVE_TESTS=1 ./scripts/run_live_tests.sh
+VV_LLM_SETTINGS_JSON=/secure/path/llm_settings.json VV_LLM_RUN_LIVE_TESTS=1 \
+  ./scripts/run_live_tests.sh
 ```
+
+Always set `VV_LLM_SETTINGS_JSON` to an explicit, secret-bearing settings file
+for a real run. Do not rely on repository-local fallback discovery or print
+the file contents. The selected file must contain a V2 endpoint/model binding
+for the provider under test and a non-placeholder credential.
 
 The script runs:
 
@@ -59,13 +67,11 @@ The single-threaded mode reduces provider rate-limit noise and makes failures ea
 
 ## Live Settings
 
-Live settings load from the first available source:
-
-1. `VV_LLM_SETTINGS_JSON`
-2. `crates/vv-llm/tests/fixtures/dev_settings.json`
-3. `crates/vv-llm/tests/fixtures/sample_settings.json`
-
-`dev_settings.json` is gitignored and may contain real credentials. Do not print it, paste it into logs, include it in diffs, or summarize actual key values.
+`VV_LLM_SETTINGS_JSON` is the review-safe way to select live settings. Treat
+its target as secret-bearing. Do not print it, paste it into logs, include it
+in diffs, or summarize actual key values. The test harness retains a local
+fallback for backwards compatibility, but it must not be used as evidence in
+reviews or CI.
 
 Use `crates/vv-llm/tests/fixtures/dev_settings.example.json` and `sample_settings.json` for documented shapes and committed examples.
 
@@ -83,6 +89,7 @@ Credential detection accepts:
 `live_tests.rs` covers:
 
 - DeepSeek OpenAI-compatible chat completion.
+- DeepSeek OpenAI-compatible streaming with final usage and done delta.
 - DeepSeek `deepseek-v4-flash` typed thinking defaults, explicit enable, and explicit disable.
 - Qwen OpenAI-compatible chat with system prompt.
 - Qwen `qwen3.7-max` OpenAI-compatible chat completion.
