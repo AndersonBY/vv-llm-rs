@@ -580,6 +580,43 @@ fn default_zhipuai_catalog_exposes_glm_53_capabilities() {
 }
 
 #[test]
+fn default_zhipuai_catalog_exposes_glm_53_flash_capabilities() {
+    let settings = LlmSettings::from_json_str("{}").unwrap();
+    let model = settings
+        .backends
+        .get("zhipuai")
+        .and_then(|backend| backend.models.get("glm-5.3-flash"))
+        .expect("glm-5.3-flash should exist");
+
+    assert_eq!(model.context_length, Some(1_000_000));
+    assert_eq!(model.max_output_tokens, Some(128_000));
+    assert_eq!(model.function_call_available, Some(true));
+    assert_eq!(model.response_format_available, Some(true));
+    assert_eq!(model.native_multimodal, Some(true));
+
+    let capabilities = model.capabilities();
+    assert!(capabilities.tools);
+    assert_eq!(
+        capabilities.structured_output,
+        vv_llm::StructuredOutputCapability::JsonSchema
+    );
+    assert_eq!(
+        capabilities.thinking,
+        vv_llm::ThinkingCapability::AlwaysEnabled
+    );
+    assert_eq!(capabilities.input_modalities.len(), 3);
+    assert!(capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Text));
+    assert!(capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Image));
+    assert!(capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Video));
+}
+
+#[test]
 fn default_qwen_38_catalog_exposes_hosted_api_capabilities() {
     let settings = LlmSettings::from_json_str("{}").unwrap();
     let backend = settings

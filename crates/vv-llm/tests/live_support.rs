@@ -1,4 +1,5 @@
-use std::{env, path::PathBuf, time::Instant};
+use serde_json::Value;
+use std::{env, fs, path::PathBuf, time::Instant};
 use vv_llm::{EndpointConfig, LlmSettings, ResolvedModelConfig, VvLlmError};
 
 const TRUTHY: &[&str] = &["1", "true", "yes", "on"];
@@ -16,7 +17,17 @@ pub fn env_bool(name: &str, default: bool) -> bool {
 
 pub fn load_live_settings(require_credentials: bool) -> Result<LlmSettings, VvLlmError> {
     let path = live_settings_path();
-    let settings = LlmSettings::from_json_file(&path)?;
+    let raw =
+        fs::read_to_string(&path).map_err(|error| VvLlmError::Configuration(error.to_string()))?;
+    // The shared development fixture still carries legacy top-level local
+    // settings that are irrelevant to provider live tests. Strip only those
+    // legacy sections before applying the strict settings parser.
+    let mut document: Value = serde_json::from_str(&raw)?;
+    if let Some(object) = document.as_object_mut() {
+        object.remove("local");
+        object.remove("custom_llms");
+    }
+    let settings = LlmSettings::from_json_str(&document.to_string())?;
     let allow_empty = env_bool("VV_LLM_ALLOW_EMPTY_KEYS", false);
     if require_credentials && !allow_empty && !has_live_credentials(&settings) {
         return Err(VvLlmError::Configuration(format!(

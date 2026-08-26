@@ -333,9 +333,11 @@ async fn live_qwen_3_7_max_openai_compatible_chat_completion() {
 async fn live_zhipuai_openai_compatible_chat_completion() {
     require_live();
     let settings = load_live_settings(true).unwrap();
+    let requested_model =
+        std::env::var("VV_LLM_MODEL").unwrap_or_else(|_| "glm-4-flash".to_string());
     let (model, api_base, api_key) = resolved_parts(
         settings
-            .resolve_chat_model(BackendType::ZhiPuAI, "glm-4-flash")
+            .resolve_chat_model(BackendType::ZhiPuAI, &requested_model)
             .unwrap(),
     );
     let client = create_chat_client(BackendType::ZhiPuAI, model.clone(), api_base, api_key);
