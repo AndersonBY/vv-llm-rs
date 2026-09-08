@@ -1,4 +1,6 @@
-use vv_llm::{default_chat_model, settings::LlmSettings, BackendType};
+use vv_llm::{
+    default_chat_model, order_endpoints, settings::LlmSettings, BackendType, EndpointBinding,
+};
 
 #[test]
 fn loads_settings_and_resolves_chat_model_endpoint() {
@@ -213,6 +215,222 @@ fn endpoint_bindings_accept_string_and_object_forms() {
     assert_eq!(object_binding.model_id, "Qwen/QwQ-32B");
     assert_eq!(string_binding.endpoint.id, "enabled");
     assert_eq!(string_binding.model_id, "qwen-max");
+}
+
+#[test]
+fn endpoint_priority_round_trips_for_chat_and_retrieval_settings() {
+    for section in ["backends", "embedding_backends", "rerank_backends"] {
+        let raw = format!(
+            r#"{{
+              "endpoints": [{{"id":"primary"}}],
+              "{section}": {{
+                "openai": {{
+                  "models": {{
+                    "test": {{
+                      "id":"test",
+                      "endpoints":[{{"endpoint_id":"primary","priority":2}}]
+                    }}
+                  }}
+                }}
+              }}
+            }}"#
+        );
+        let settings = LlmSettings::from_json_str(&raw).unwrap();
+        let encoded = serde_json::to_value(&settings).unwrap();
+        assert_eq!(
+            encoded[section]["openai"]["models"]["test"]["endpoints"][0]["priority"],
+            2
+        );
+
+        let restored =
+            LlmSettings::from_json_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(settings, restored);
+    }
+}
+
+#[test]
+fn endpoint_priority_rejects_non_positive_and_non_integer_values() {
+    for section in ["backends", "embedding_backends", "rerank_backends"] {
+        for priority in ["0", "-1", "true", "false", "\"2\"", "1.0", "1.5", "null"] {
+            let raw = format!(
+                r#"{{
+                  "endpoints": [{{"id":"primary"}}],
+                  "{section}": {{
+                    "openai": {{
+                      "models": {{
+                        "test": {{
+                          "id":"test",
+                          "endpoints":[{{"endpoint_id":"primary","priority":{priority}}}]
+                        }}
+                      }}
+                    }}
+                  }}
+                }}"#
+            );
+            assert!(
+                LlmSettings::from_json_str(&raw).is_err(),
+                "section {section}, priority {priority}"
+            );
+        }
+    }
+}
+
+#[test]
+fn endpoint_order_is_stable_and_preference_cannot_override_priority() {
+    let endpoints = vec![
+        EndpointBinding::Config {
+            endpoint_id: "low".to_string(),
+            model_id: Some("low-model".to_string()),
+            enabled: None,
+            priority: Some(2),
+            rpm: None,
+            tpm: None,
+            concurrent_requests: None,
+            extra: Default::default(),
+        },
+        EndpointBinding::Config {
+            endpoint_id: "high".to_string(),
+            model_id: Some("high-model".to_string()),
+            enabled: None,
+            priority: None,
+            rpm: None,
+            tpm: None,
+            concurrent_requests: None,
+            extra: Default::default(),
+        },
+        EndpointBinding::Id("peer".to_string()),
+    ];
+    let original = endpoints.clone();
+
+    let ids = |ordered: Vec<EndpointBinding>| {
+        ordered
+            .into_iter()
+            .map(|endpoint| endpoint.endpoint_id().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        ids(order_endpoints(&endpoints, None)),
+        ["high", "peer", "low"]
+    );
+    assert_eq!(
+        ids(order_endpoints(&endpoints, Some("low"))),
+        ["high", "peer", "low"]
+    );
+    assert_eq!(
+        ids(order_endpoints(&endpoints, Some("peer"))),
+        ["peer", "high", "low"]
+    );
+    assert_eq!(endpoints, original);
+}
+
+#[test]
+fn model_resolution_filters_disabled_endpoints_before_priority_ordering() {
+    let raw = r#"{
+      "endpoints": [
+        {"id":"low"},
+        {"id":"high"},
+        {"id":"peer"}
+      ],
+      "backends": {
+        "openai": {
+          "models": {
+            "test": {
+              "id":"test",
+              "endpoints":[
+                {"endpoint_id":"low","priority":2},
+                {"endpoint_id":"high"},
+                "peer"
+              ]
+            }
+          }
+        }
+      },
+      "embedding_backends": {
+        "openai": {
+          "models": {
+            "test": {
+              "id":"test",
+              "endpoints":[
+                {"endpoint_id":"low","priority":2},
+                {"endpoint_id":"high"},
+                "peer"
+              ]
+            }
+          }
+        }
+      },
+      "rerank_backends": {
+        "openai": {
+          "models": {
+            "test": {
+              "id":"test",
+              "endpoints":[
+                {"endpoint_id":"low","priority":2},
+                {"endpoint_id":"high"},
+                "peer"
+              ]
+            }
+          }
+        }
+      }
+    }"#;
+
+    let mut settings = LlmSettings::from_json_str(raw).unwrap();
+    assert_eq!(
+        settings
+            .resolve_chat_model(BackendType::OpenAI, "test")
+            .unwrap()
+            .endpoint
+            .id,
+        "high"
+    );
+    assert_eq!(
+        settings
+            .resolve_embedding_model("openai", "test")
+            .unwrap()
+            .endpoint
+            .id,
+        "high"
+    );
+    assert_eq!(
+        settings
+            .resolve_rerank_model("openai", "test")
+            .unwrap()
+            .endpoint
+            .id,
+        "high"
+    );
+
+    settings
+        .endpoints
+        .iter_mut()
+        .find(|endpoint| endpoint.id == "high")
+        .unwrap()
+        .enabled = false;
+    assert_eq!(
+        settings
+            .resolve_chat_model(BackendType::OpenAI, "test")
+            .unwrap()
+            .endpoint
+            .id,
+        "peer"
+    );
+    assert_eq!(
+        settings
+            .resolve_embedding_model("openai", "test")
+            .unwrap()
+            .endpoint
+            .id,
+        "peer"
+    );
+    assert_eq!(
+        settings
+            .resolve_rerank_model("openai", "test")
+            .unwrap()
+            .endpoint
+            .id,
+        "peer"
+    );
 }
 
 #[test]

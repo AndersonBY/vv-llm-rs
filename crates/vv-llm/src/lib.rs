@@ -28,8 +28,8 @@ pub use middleware::{ChatMiddlewareV1, MiddlewareChatClient, MiddlewareContext};
 pub use registry::{FallbackChatClient, FallbackRoute, ProviderRegistration, ProviderRegistry};
 pub use rerank_clients::{create_rerank_client, RerankClient};
 pub use settings::{
-    BackendConfig, EndpointBinding, EndpointConfig, LlmSettings, ModelConfig, RateLimitConfig,
-    ResolvedModelConfig, ServerConfig,
+    order_endpoints, BackendConfig, EndpointBinding, EndpointConfig, LlmSettings, ModelConfig,
+    RateLimitConfig, ResolvedModelConfig, ServerConfig,
 };
 pub use testing::{ScriptedChatClient, ScriptedStep, ScriptedStream};
 pub use types::{

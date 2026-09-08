@@ -2,7 +2,7 @@ use crate::{
     default_chat_backends, BackendType, Modality, ModelCapabilities, StructuredOutputCapability,
     VvLlmError,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::Deserializer, Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{collections::HashMap, fs, path::Path};
 
@@ -22,6 +22,19 @@ fn default_endpoint_tpm() -> u32 {
 
 fn default_endpoint_concurrent_requests() -> u32 {
     20
+}
+
+fn deserialize_endpoint_priority<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let priority = u32::deserialize(deserializer)?;
+    if priority == 0 {
+        return Err(serde::de::Error::custom(
+            "endpoint priority must be at least 1",
+        ));
+    }
+    Ok(Some(priority))
 }
 
 fn default_rate_limit_backend() -> String {
@@ -208,6 +221,12 @@ pub enum EndpointBinding {
         model_id: Option<String>,
         #[serde(default)]
         enabled: Option<bool>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_endpoint_priority"
+        )]
+        priority: Option<u32>,
         #[serde(default)]
         rpm: Option<u32>,
         #[serde(default)]
@@ -240,6 +259,33 @@ impl EndpointBinding {
             Self::Config { enabled, .. } => enabled.unwrap_or(true),
         }
     }
+
+    pub fn priority(&self) -> u32 {
+        match self {
+            Self::Id(_) => 1,
+            Self::Config { priority, .. } => priority.unwrap_or(1),
+        }
+    }
+}
+
+/// Return endpoint bindings in ascending priority order without changing the input.
+///
+/// Ordering is stable within each priority tier. A preferred endpoint only moves
+/// ahead of other bindings in the same tier.
+pub fn order_endpoints(
+    endpoints: &[EndpointBinding],
+    preferred_endpoint_id: Option<&str>,
+) -> Vec<EndpointBinding> {
+    let mut ordered = endpoints.to_vec();
+    ordered.sort_by_key(|endpoint| {
+        (
+            endpoint.priority(),
+            preferred_endpoint_id
+                .map(|id| endpoint.endpoint_id() != id)
+                .unwrap_or(false),
+        )
+    });
+    ordered
 }
 
 impl LlmSettings {
@@ -351,19 +397,25 @@ impl LlmSettings {
                 backend: backend.to_string(),
                 model: model_id.to_string(),
             })?;
-        let binding = model
+        let enabled_bindings: Vec<_> = model
             .endpoints
             .iter()
-            .find(|binding| binding.enabled())
-            .ok_or_else(|| {
-                VvLlmError::Configuration(format!("model {model_id} has no enabled endpoints"))
-            })?;
-        let endpoint_id = binding.endpoint_id();
-        let endpoint = self
-            .endpoints
+            .filter(|binding| binding.enabled())
+            .cloned()
+            .collect();
+        let ordered_bindings = order_endpoints(&enabled_bindings, None);
+        let first_binding = ordered_bindings.first().ok_or_else(|| {
+            VvLlmError::Configuration(format!("model {model_id} has no enabled endpoints"))
+        })?;
+        let (binding, endpoint) = ordered_bindings
             .iter()
-            .find(|endpoint| endpoint.enabled && endpoint.id == endpoint_id)
-            .ok_or_else(|| VvLlmError::EndpointNotFound(endpoint_id.to_string()))?;
+            .find_map(|binding| {
+                self.endpoints
+                    .iter()
+                    .find(|endpoint| endpoint.enabled && endpoint.id == binding.endpoint_id())
+                    .map(|endpoint| (binding, endpoint))
+            })
+            .ok_or_else(|| VvLlmError::EndpointNotFound(first_binding.endpoint_id().to_string()))?;
 
         Ok(ResolvedModelConfig {
             backend: backend.to_string(),

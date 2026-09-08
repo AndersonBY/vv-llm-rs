@@ -15,7 +15,7 @@ vv-llm-rs/
     test_sync_contract.py
   crates/vv-llm/
     Cargo.toml
-    contract/v1.0.1/       # locked language-neutral schemas, fixtures, and catalog
+    contract/v1.1.0/       # locked language-neutral schemas, fixtures, and catalog
     src/
       lib.rs
       contract.rs
@@ -41,6 +41,7 @@ vv-llm-rs/
 - `EmbeddingClient`, `create_embedding_client`.
 - `RerankClient`, `create_rerank_client`.
 - `LlmSettings`, `EndpointConfig`, `ModelConfig`, `EndpointBinding`, `ResolvedModelConfig`.
+- `order_endpoints` for stable priority ordering of endpoint bindings.
 - `ContractMetadata`, `contract_metadata`, and embedded manifest/consumer-lock accessors.
 - Provider-neutral data types from `types.rs`.
 
@@ -94,7 +95,7 @@ Each backend contains `models`. Each model has an `id` and `endpoints`. Endpoint
 Resolution rules:
 
 - A model can be resolved by its map key or by `ModelConfig.id`.
-- The first enabled endpoint binding is selected.
+- Disabled bindings and disabled or missing endpoints are filtered out, then the lowest numeric binding priority is selected; ties preserve configuration order.
 - Object bindings can override the provider model id through `model_id`.
 - Missing backends or models return `VvLlmError::ModelNotFound`.
 - Missing endpoints return `VvLlmError::EndpointNotFound`.
@@ -160,7 +161,7 @@ feature replacement for the Python package. Keep these boundaries explicit:
 | Rate limiting | Active memory, Redis, and DiskCache RPM/TPM limiters (optional extras) | Parses endpoint/global RPM/TPM settings but does not enforce a local/distributed limiter | Rust retry handling of 429/`Retry-After` is not rate-limit enforcement |
 | Token counting | Local model tokenizers, provider/token-server fallback, and optional FastAPI token server | Local `tiktoken-rs`, configured token-server/provider-tokenizer fallback, no bundled server executable | Rust consumes a token server; it does not ship the Python FastAPI server |
 | Settings | Shared `backends`/retrieval fields | Shared `backends`/retrieval fields, string/object bindings, and transport metadata | The JSON shape is shared; runtime-specific loading remains independent |
-| Contract artifacts | Vendored `vv-llm-contract` 1.0.1 schemas, fixtures, catalog, and lock | Vendored same release with lock SHA pin and compile-time catalog/fixture use | JSON wire semantics are shared; runtime orchestration remains language-specific |
+| Contract artifacts | Vendored `vv-llm-contract` 1.1.0 schemas, fixtures, catalog, and lock | Vendored same release with lock SHA pin and compile-time catalog/fixture use | JSON wire semantics are shared; runtime orchestration remains language-specific |
 
 ## Adapter Boundaries
 

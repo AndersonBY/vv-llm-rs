@@ -172,15 +172,18 @@ async fn main() -> Result<(), vv_llm::VvLlmError> {
 }
 ```
 
-`endpoints` 绑定可以是字符串，也可以是对象。对象形式支持覆盖 provider model id，并可禁用：
+`endpoints` 绑定可以是字符串，也可以是对象。对象形式支持覆盖 provider model id、禁用绑定，并接受可选的 `priority` 整数（必须大于等于 1，默认 1）：
 
 ```json
 {
   "endpoint_id": "openai-default",
   "model_id": "provider-model-id",
-  "enabled": true
+  "enabled": true,
+  "priority": 1
 }
 ```
+
+设置解析会先过滤禁用或不存在的端点，再按优先级升序选择，并保持同级配置顺序。`order_endpoints(endpoints, preferred_endpoint_id)` 已重新导出，返回新列表并保持稳定排序；偏好端点只会在同一优先级内提前。
 
 ## 流式调用
 
@@ -423,7 +426,7 @@ use vv_llm::utilities::{
 vv-llm-rs/
   Cargo.toml
   crates/vv-llm/
-    contract/v1.0.1/      # 锁定的跨语言 schema、fixture 与模型目录
+    contract/v1.1.0/      # 锁定的跨语言 schema、fixture 与模型目录
     src/
       chat_clients/       # Chat client、stream 归一化、Vertex 鉴权
       contract.rs         # contract metadata 与 manifest/lock accessor
@@ -452,8 +455,8 @@ crate 提供 `contract_metadata()`、`contract_manifest_json()` 与
 默认只离线校验 vendored lock；同步必须显式指定 source：
 
 ```bash
-python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.0.1
-VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.0.1 python scripts/sync_contract.py
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.1.0
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.1.0 python scripts/sync_contract.py
 ```
 
 `python scripts/sync_contract.py --check` 校验包内的 contract 副本。

@@ -181,15 +181,18 @@ Minimal settings shape:
 }
 ```
 
-Endpoint bindings may be strings or objects. Object bindings can override the provider model id and can be disabled:
+Endpoint bindings may be strings or objects. Object bindings can override the provider model id, can be disabled, and accept an optional integer `priority` of at least 1 (default 1):
 
 ```json
 {
   "endpoint_id": "openai-default",
   "model_id": "provider-model-id",
-  "enabled": true
+  "enabled": true,
+  "priority": 1
 }
 ```
+
+Settings resolution filters disabled or missing endpoints, then selects bindings by ascending priority while preserving configuration order within each priority tier. `order_endpoints(endpoints, preferred_endpoint_id)` is re-exported for the same stable ordering and returns a new list; a preferred endpoint only moves ahead within its tier.
 
 ## Streaming
 
@@ -439,7 +442,7 @@ use vv_llm::utilities::{
 vv-llm-rs/
   Cargo.toml
   crates/vv-llm/
-    contract/v1.0.1/      # locked language-neutral schemas, fixtures, and catalog
+    contract/v1.1.0/      # locked language-neutral schemas, fixtures, and catalog
     src/
       chat_clients/       # Chat clients, stream normalization, Vertex auth
       contract.rs         # contract metadata and embedded manifest/lock accessors
@@ -468,8 +471,8 @@ The crate exposes `contract_metadata()`, `contract_manifest_json()`, and
 default; synchronization requires an explicit source:
 
 ```bash
-python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.0.1
-VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.0.1 python scripts/sync_contract.py
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.1.0
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.1.0 python scripts/sync_contract.py
 ```
 
 `python scripts/sync_contract.py --check` validates the packaged contract copy.
