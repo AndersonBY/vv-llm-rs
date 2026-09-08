@@ -23,10 +23,10 @@ CONTRACT_METADATA = {
     "contract_version": CONTRACT_VERSION,
     "schema_version": 2,
     "fixture_version": 2,
-    "catalog_revision": 2,
+    "catalog_revision": 3,
 }
 CONTRACT_CONSUMER_LOCK_SHA256 = (
-    "3407cc7d398885284f32c453a8e71c6dbb2f40a10eb0cc9f2d21a0a7c7dc6b49"
+    "2b72cec499a3766bfe0fb3bb612576cf984b11ebbfefe5086a094d840f5734ad"
 )
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "crates" / "vv-llm" / "contract" / f"v{CONTRACT_VERSION}"
