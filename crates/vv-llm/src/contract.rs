@@ -11,10 +11,10 @@ pub const CONTRACT_SCHEMA_VERSION: u32 = 2;
 /// Version of the deterministic protocol/settings fixtures in this release.
 pub const CONTRACT_FIXTURE_VERSION: u32 = 2;
 /// Revision of the default model catalog in this release.
-pub const CONTRACT_CATALOG_REVISION: u32 = 10;
+pub const CONTRACT_CATALOG_REVISION: u32 = 13;
 /// SHA-256 pin for the exact consumer lock embedded in this crate.
 pub const CONTRACT_CONSUMER_LOCK_SHA256: &str =
-    "f6a1c18c71555686abf3797e132c4f53cfc0c08ddd60c6ce4e7e89d30544793a";
+    "3bbb215efebc8d9b50e3c4fd4646239fc08d1cc2a33bb8aa872cb886c67d90c6";
 
 /// A compact, provider-neutral description of the vendored contract release.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

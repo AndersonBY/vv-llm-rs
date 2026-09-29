@@ -43,11 +43,11 @@ fn embeds_manifest_and_consumer_lock() {
     assert_eq!(manifest["contract_version"], "1.2.0");
     assert_eq!(manifest["schema_version"], 2);
     assert_eq!(manifest["fixture_version"], 2);
-    assert_eq!(manifest["catalog_revision"], 10);
+    assert_eq!(manifest["catalog_revision"], 13);
     assert_eq!(lock["contract_version"], "1.2.0");
     assert_eq!(lock["schema_version"], 2);
     assert_eq!(lock["fixture_version"], 2);
-    assert_eq!(lock["catalog_revision"], 10);
+    assert_eq!(lock["catalog_revision"], 13);
     assert!(lock["artifacts"]["catalog/default-chat-catalog.json"].is_string());
     assert!(lock["artifacts"]["fixtures/openai-compatible.v2.json"].is_string());
 }
