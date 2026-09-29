@@ -57,6 +57,60 @@ fn register_shared(
 }
 
 #[tokio::test]
+async fn fallback_checks_each_model_without_downgrading_effort() {
+    let scripted = Arc::new(ScriptedChatClient::new(
+        "provider",
+        vec![ScriptedStep::response(response("high", "ok"))],
+    ));
+    let mut registry = ProviderRegistry::new();
+    register_shared(
+        &mut registry,
+        "provider",
+        scripted.clone(),
+        ModelCapabilities::default(),
+    );
+    registry
+        .set_model_capabilities(
+            "provider",
+            std::collections::HashMap::from([
+                (
+                    "low".to_string(),
+                    ModelCapabilities {
+                        reasoning_efforts: Some(vec!["low".into()]),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "high".to_string(),
+                    ModelCapabilities {
+                        reasoning_efforts: Some(vec!["high".into()]),
+                        ..Default::default()
+                    },
+                ),
+            ]),
+        )
+        .unwrap();
+    let client = FallbackChatClient::new(
+        Arc::new(registry),
+        vec![
+            FallbackRoute::new("provider", "low"),
+            FallbackRoute::new("provider", "high"),
+        ],
+    )
+    .unwrap();
+    let mut request = request();
+    request.options.reasoning_effort = Some("high".into());
+    let result = client.create_with_metadata(request).await.unwrap();
+    assert_eq!(result.metadata.fallback_index, 1);
+    assert_eq!(scripted.requests().len(), 1);
+    assert_eq!(scripted.requests()[0].model, "high");
+    assert_eq!(
+        scripted.requests()[0].options.reasoning_effort.as_deref(),
+        Some("high")
+    );
+}
+
+#[tokio::test]
 async fn fallback_skips_incompatible_candidates_without_calling_them() {
     let incapable = Arc::new(ScriptedChatClient::new(
         "incapable",

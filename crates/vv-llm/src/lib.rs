@@ -13,7 +13,8 @@ pub mod types;
 pub mod utilities;
 
 pub use chat_clients::{
-    create_chat_client, create_chat_client_from_resolved, ChatClient, ChatStream,
+    create_chat_client, create_chat_client_from_resolved,
+    create_chat_client_from_resolved_with_policy, ChatClient, ChatStream,
     GoogleAccessTokenProvider,
 };
 pub use contract::{
@@ -33,9 +34,9 @@ pub use settings::{
 };
 pub use testing::{ScriptedChatClient, ScriptedStep, ScriptedStream};
 pub use types::{
-    BackendType, ChatRequest, ChatRequestOptions, ChatResponse, ChatStreamDelta, ChatTool,
-    ChatUsage, CompletionResult, EmbeddingData, EmbeddingResponse, ErrorDetails, ErrorKind,
-    JsonExtensions, Message, MessageContent, MessageRole, Modality, ModelCapabilities,
+    BackendType, CapabilityPolicy, ChatRequest, ChatRequestOptions, ChatResponse, ChatStreamDelta,
+    ChatTool, ChatUsage, CompletionResult, EmbeddingData, EmbeddingResponse, ErrorDetails,
+    ErrorKind, JsonExtensions, Message, MessageContent, MessageRole, Modality, ModelCapabilities,
     RerankResponse, RerankResult, ResponseMetadata, StructuredOutputCapability, ThinkingCapability,
     ThinkingPreference, ToolCall, ToolChoice, VvLlmError,
 };

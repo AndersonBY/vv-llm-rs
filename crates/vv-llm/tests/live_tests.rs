@@ -849,3 +849,45 @@ fn cat_image_data_url() -> String {
     .unwrap();
     format!("data:image/png;base64,{}", STANDARD.encode(image))
 }
+
+#[tokio::test]
+#[ignore = "live API call; requires VV_LLM_RUN_LIVE_TESTS=1 and VV_LLM_SETTINGS_JSON"]
+async fn live_deepseek_reasoning_effort_alias_and_off() {
+    assert!(live_support::live_enabled(), "enable live tests explicitly");
+    assert!(
+        std::env::var_os("VV_LLM_SETTINGS_JSON").is_some(),
+        "select explicit live settings"
+    );
+    let settings = load_live_settings(true).unwrap_or_else(|_| panic!("live settings failed"));
+    let resolved = settings
+        .resolve_chat_model(BackendType::DeepSeek, "deepseek-flash")
+        .unwrap_or_else(|_| panic!("DeepSeek model resolution failed"));
+    let model = resolved.model_id.clone();
+    let client = vv_llm::chat_clients::create_chat_client_from_resolved_with_policy(
+        resolved,
+        vv_llm::CapabilityPolicy::Strict,
+    )
+    .unwrap_or_else(|_| panic!("DeepSeek client configuration failed"));
+    for effort in ["none", "xhigh"] {
+        let mut request = ChatRequest::new(
+            model.clone(),
+            vec![Message::text(MessageRole::User, "Reply only OK.")],
+        );
+        request.options = ChatRequestOptions {
+            max_tokens: Some(256),
+            reasoning_effort: Some(effort.into()),
+            ..Default::default()
+        };
+        let response = tokio::time::timeout(Duration::from_secs(45), client.create(request))
+            .await
+            .unwrap_or_else(|_| panic!("DeepSeek effort request timed out"))
+            .unwrap_or_else(|_| panic!("DeepSeek effort request failed"));
+        assert!(!response.content.trim().is_empty());
+        let reasoning = response
+            .reasoning_content
+            .as_deref()
+            .is_some_and(|s| !s.is_empty());
+        assert_eq!(reasoning, effort != "none");
+        eprintln!("[live] runtime=rust model=deepseek-flash effort={effort} result=ACCEPTED reasoning_present={reasoning}");
+    }
+}

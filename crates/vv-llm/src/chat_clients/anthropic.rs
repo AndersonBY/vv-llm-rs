@@ -1,6 +1,6 @@
 use crate::{
-    ChatRequest, ChatResponse, ChatStreamDelta, ChatTool, ChatUsage, Message, MessageContent,
-    MessageRole, ToolCall, VvLlmError,
+    CapabilityPolicy, ChatRequest, ChatResponse, ChatStreamDelta, ChatTool, ChatUsage, Message,
+    MessageContent, MessageRole, ModelCapabilities, ToolCall, VvLlmError,
 };
 use anthropic::client::{Client, ClientBuilder};
 use anthropic::types::{
@@ -21,13 +21,15 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use super::{ChatClient, ChatStream};
+use super::{reasoning, ChatClient, ChatStream};
 
 #[derive(Debug, Clone)]
 pub struct AnthropicChatClient {
     model: String,
     api_base: String,
     api_key: String,
+    capabilities: Option<ModelCapabilities>,
+    capability_policy: CapabilityPolicy,
 }
 
 impl AnthropicChatClient {
@@ -40,13 +42,34 @@ impl AnthropicChatClient {
             model: model.into(),
             api_base: api_base.into(),
             api_key: api_key.into(),
+            capabilities: None,
+            capability_policy: CapabilityPolicy::Warn,
         }
+    }
+
+    pub fn with_capabilities(mut self, capabilities: ModelCapabilities) -> Self {
+        self.capabilities = Some(capabilities);
+        self
+    }
+
+    pub fn with_capability_policy(mut self, policy: CapabilityPolicy) -> Self {
+        self.capability_policy = policy;
+        self
     }
 
     pub fn to_anthropic_json(
         &self,
         request: &ChatRequest,
     ) -> Result<serde_json::Value, VvLlmError> {
+        let model = request_model_or_default(&self.model, request);
+        let body = reasoning::resolve_body(request, "anthropic")?;
+        reasoning::validate_body(
+            &body,
+            &model,
+            "anthropic",
+            &reasoning::model_capabilities(&model, &self.model, self.capabilities.as_ref()),
+            self.capability_policy,
+        )?;
         to_anthropic_json(&self.model, request)
     }
 
@@ -309,6 +332,8 @@ pub struct AnthropicBedrockChatClient {
     api_base: String,
     region: String,
     credentials: Value,
+    capabilities: Option<ModelCapabilities>,
+    capability_policy: CapabilityPolicy,
 }
 
 impl AnthropicBedrockChatClient {
@@ -334,13 +359,34 @@ impl AnthropicBedrockChatClient {
             api_base: api_base.into(),
             region,
             credentials,
+            capabilities: None,
+            capability_policy: CapabilityPolicy::Warn,
         })
+    }
+
+    pub fn with_capabilities(mut self, capabilities: ModelCapabilities) -> Self {
+        self.capabilities = Some(capabilities);
+        self
+    }
+
+    pub fn with_capability_policy(mut self, policy: CapabilityPolicy) -> Self {
+        self.capability_policy = policy;
+        self
     }
 
     pub fn to_anthropic_json(
         &self,
         request: &ChatRequest,
     ) -> Result<serde_json::Value, VvLlmError> {
+        let model = request_model_or_default(&self.model, request);
+        let body = reasoning::resolve_body(request, "anthropic")?;
+        reasoning::validate_body(
+            &body,
+            &model,
+            "anthropic",
+            &reasoning::model_capabilities(&model, &self.model, self.capabilities.as_ref()),
+            self.capability_policy,
+        )?;
         to_anthropic_json(&self.model, request)
     }
 
@@ -370,12 +416,27 @@ impl ChatClient for AnthropicBedrockChatClient {
     }
 
     async fn create_completion(&self, request: ChatRequest) -> Result<ChatResponse, VvLlmError> {
+        let additional = reasoning::resolve_body(&request, "anthropic")?;
+        let model = request_model_or_default(&self.model, &request);
+        reasoning::validate_body(
+            &additional,
+            &model,
+            "anthropic",
+            &reasoning::model_capabilities(&model, &self.model, self.capabilities.as_ref()),
+            self.capability_policy,
+        )?;
         let bedrock_request = to_bedrock_request(&self.model, &request)?;
         let mut operation = self
             .client()
             .converse()
             .model_id(bedrock_request.model_id)
             .set_messages(Some(bedrock_request.messages));
+        if additional
+            .as_object()
+            .is_some_and(|object| !object.is_empty())
+        {
+            operation = operation.additional_model_request_fields(json_to_document(&additional));
+        }
 
         if !bedrock_request.system.is_empty() {
             operation = operation.set_system(Some(bedrock_request.system));
@@ -426,12 +487,27 @@ impl ChatClient for AnthropicBedrockChatClient {
     }
 
     async fn create_stream(&self, request: ChatRequest) -> Result<ChatStream, VvLlmError> {
+        let additional = reasoning::resolve_body(&request, "anthropic")?;
+        let model = request_model_or_default(&self.model, &request);
+        reasoning::validate_body(
+            &additional,
+            &model,
+            "anthropic",
+            &reasoning::model_capabilities(&model, &self.model, self.capabilities.as_ref()),
+            self.capability_policy,
+        )?;
         let bedrock_request = to_bedrock_request(&self.model, &request)?;
         let mut operation = self
             .client()
             .converse_stream()
             .model_id(bedrock_request.model_id)
             .set_messages(Some(bedrock_request.messages));
+        if additional
+            .as_object()
+            .is_some_and(|object| !object.is_empty())
+        {
+            operation = operation.additional_model_request_fields(json_to_document(&additional));
+        }
 
         if !bedrock_request.system.is_empty() {
             operation = operation.set_system(Some(bedrock_request.system));
@@ -550,7 +626,7 @@ fn to_anthropic_json(model: &str, request: &ChatRequest) -> Result<Value, VvLlmE
     if let Some(thinking) = &request.options.thinking {
         value["thinking"] = thinking.clone();
     }
-    merge_extra_body(&mut value, &request.extra_body);
+    merge_extra_body(&mut value, &reasoning::resolve_body(request, "anthropic")?);
 
     Ok(value)
 }
@@ -851,6 +927,7 @@ fn request_needs_anthropic_json(request: &ChatRequest) -> bool {
     !request.tools.is_empty()
         || request.tool_choice.is_some()
         || request.options.thinking.is_some()
+        || request.options.reasoning_effort.is_some()
         || !is_empty_extra_body(&request.extra_body)
         || request
             .messages

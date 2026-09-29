@@ -14,6 +14,7 @@ type ClientFactory = Arc<dyn Fn() -> Box<dyn ChatClient> + Send + Sync>;
 pub struct ProviderRegistration {
     pub name: String,
     pub capabilities: ModelCapabilities,
+    pub model_capabilities: HashMap<String, ModelCapabilities>,
     factory: ClientFactory,
 }
 
@@ -68,6 +69,7 @@ impl ProviderRegistry {
             ProviderRegistration {
                 name,
                 capabilities,
+                model_capabilities: HashMap::new(),
                 factory: Arc::new(factory),
             },
         );
@@ -78,6 +80,18 @@ impl ProviderRegistry {
         self.providers
             .get(name)
             .ok_or_else(|| VvLlmError::Configuration(format!("provider is not registered: {name}")))
+    }
+
+    pub fn set_model_capabilities(
+        &mut self,
+        name: &str,
+        models: HashMap<String, ModelCapabilities>,
+    ) -> Result<(), VvLlmError> {
+        let registration = self.providers.get_mut(name).ok_or_else(|| {
+            VvLlmError::Configuration(format!("provider is not registered: {name}"))
+        })?;
+        registration.model_capabilities = models;
+        Ok(())
     }
 
     pub fn names(&self) -> Vec<&str> {
@@ -122,7 +136,12 @@ impl FallbackChatClient {
             let registration = self.registry.get(&route.provider)?;
             let mut routed = request.clone();
             routed.model.clone_from(&route.model);
-            if let Err(error) = registration.capabilities.validate_request(&routed) {
+            if let Err(error) = registration
+                .model_capabilities
+                .get(&routed.model)
+                .unwrap_or(&registration.capabilities)
+                .validate_request(&routed)
+            {
                 last_error = Some(error);
                 continue;
             }
@@ -184,7 +203,12 @@ impl ChatClient for FallbackChatClient {
             let mut routed = request.clone();
             routed.model.clone_from(&route.model);
             routed.options.stream = Some(true);
-            if let Err(error) = registration.capabilities.validate_request(&routed) {
+            if let Err(error) = registration
+                .model_capabilities
+                .get(&routed.model)
+                .unwrap_or(&registration.capabilities)
+                .validate_request(&routed)
+            {
                 last_error = Some(error);
                 continue;
             }

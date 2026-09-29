@@ -1,4 +1,4 @@
-use crate::{ChatRequest, ChatResponse, VvLlmError};
+use crate::{CapabilityPolicy, ChatRequest, ChatResponse, ModelCapabilities, VvLlmError};
 use async_trait::async_trait;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
@@ -130,6 +130,8 @@ pub struct VertexOpenAiChatClient {
     model: String,
     api_base: String,
     token_provider: GoogleAccessTokenProvider,
+    capabilities: Option<ModelCapabilities>,
+    capability_policy: CapabilityPolicy,
 }
 
 impl VertexOpenAiChatClient {
@@ -142,16 +144,46 @@ impl VertexOpenAiChatClient {
             model: model.into(),
             api_base: api_base.into(),
             token_provider: GoogleAccessTokenProvider::new(credentials)?,
+            capabilities: None,
+            capability_policy: CapabilityPolicy::Warn,
         })
+    }
+
+    pub fn with_capabilities(mut self, capabilities: ModelCapabilities) -> Self {
+        self.capabilities = Some(capabilities);
+        self
+    }
+
+    pub fn with_capability_policy(mut self, policy: CapabilityPolicy) -> Self {
+        self.capability_policy = policy;
+        self
+    }
+
+    fn validate_reasoning(&self, request: &ChatRequest) -> Result<(), VvLlmError> {
+        let model = if request.model.is_empty() {
+            &self.model
+        } else {
+            &request.model
+        };
+        let body = super::reasoning::resolve_body(request, "chat")?;
+        super::reasoning::validate_body(
+            &body,
+            model,
+            "chat",
+            &super::reasoning::model_capabilities(model, &self.model, self.capabilities.as_ref()),
+            self.capability_policy,
+        )
     }
 
     async fn inner(&self) -> Result<OpenAiCompatibleChatClient, VvLlmError> {
         let token = self.token_provider.access_token().await?;
-        Ok(OpenAiCompatibleChatClient::new(
-            self.model.clone(),
-            self.api_base.clone(),
-            token.token,
-        ))
+        let mut client =
+            OpenAiCompatibleChatClient::new(self.model.clone(), self.api_base.clone(), token.token)
+                .with_capability_policy(CapabilityPolicy::Passthrough);
+        if let Some(capabilities) = &self.capabilities {
+            client = client.with_capabilities(capabilities.clone());
+        }
+        Ok(client)
     }
 }
 
@@ -162,10 +194,12 @@ impl ChatClient for VertexOpenAiChatClient {
     }
 
     async fn create_completion(&self, request: ChatRequest) -> Result<ChatResponse, VvLlmError> {
+        self.validate_reasoning(&request)?;
         self.inner().await?.create_completion(request).await
     }
 
     async fn create_stream(&self, request: ChatRequest) -> Result<ChatStream, VvLlmError> {
+        self.validate_reasoning(&request)?;
         self.inner().await?.create_stream(request).await
     }
 }

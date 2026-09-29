@@ -15,7 +15,7 @@ vv-llm-rs/
     test_sync_contract.py
   crates/vv-llm/
     Cargo.toml
-    contract/v1.1.0/       # locked language-neutral schemas, fixtures, and catalog
+    contract/v1.2.0/       # locked language-neutral schemas, fixtures, and catalog
     src/
       lib.rs
       contract.rs
@@ -37,7 +37,7 @@ vv-llm-rs/
 
 `src/lib.rs` re-exports the supported public surface:
 
-- `ChatClient`, `create_chat_client`, `create_chat_client_from_resolved`, and `ChatStream`.
+- `ChatClient`, `create_chat_client`, `create_chat_client_from_resolved`, `create_chat_client_from_resolved_with_policy`, and `ChatStream`.
 - `EmbeddingClient`, `create_embedding_client`.
 - `RerankClient`, `create_rerank_client`.
 - `LlmSettings`, `EndpointConfig`, `ModelConfig`, `EndpointBinding`, `ResolvedModelConfig`.
@@ -127,8 +127,9 @@ layered above them:
 
 `ProviderRegistry` never discovers providers automatically. A registration owns a
 client factory and declared capabilities. `FallbackRoute` supplies an ordered
-provider/model pair. Unsupported tools, structured output, streaming, thinking,
-or image input disqualify a route before its factory is called.
+provider/model pair. Per-model capabilities override the registration defaults. Unsupported tools,
+structured output, streaming, thinking, reasoning effort, or image input
+disqualify a route before its factory is called. The request effort is preserved.
 
 Streaming retry and fallback stop at the first visible chunk. Establishment errors
 and an error received as the first stream item may select another route; errors
@@ -161,7 +162,7 @@ feature replacement for the Python package. Keep these boundaries explicit:
 | Rate limiting | Active memory, Redis, and DiskCache RPM/TPM limiters (optional extras) | Parses endpoint/global RPM/TPM settings but does not enforce a local/distributed limiter | Rust retry handling of 429/`Retry-After` is not rate-limit enforcement |
 | Token counting | Local model tokenizers, provider/token-server fallback, and optional FastAPI token server | Local `tiktoken-rs`, configured token-server/provider-tokenizer fallback, no bundled server executable | Rust consumes a token server; it does not ship the Python FastAPI server |
 | Settings | Shared `backends`/retrieval fields | Shared `backends`/retrieval fields, string/object bindings, and transport metadata | The JSON shape is shared; runtime-specific loading remains independent |
-| Contract artifacts | Vendored `vv-llm-contract` 1.1.0 schemas, fixtures, catalog, and lock | Vendored same release with lock SHA pin and compile-time catalog/fixture use | JSON wire semantics are shared; runtime orchestration remains language-specific |
+| Contract artifacts | Vendored `vv-llm-contract` 1.2.0 schemas, fixtures, catalog, and lock | Vendored same release with lock SHA pin and compile-time catalog/fixture use | JSON wire semantics are shared; runtime orchestration remains language-specific |
 
 ## Adapter Boundaries
 
@@ -213,3 +214,7 @@ Utilities are deliberately small:
 `ScriptedChatClient` consumes explicit completion and stream steps and records
 normalized requests. It is a public deterministic test double for middleware,
 retry, and fallback conformance; it does not emulate provider wire protocols.
+
+Effort metadata separates effective `reasoning_efforts` from
+`reasoning_effort_aliases`. Alias targets must belong to the resolved list;
+binding maps replace model maps, and adapters retain the requested string.

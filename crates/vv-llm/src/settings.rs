@@ -137,12 +137,6 @@ pub struct ModelConfig {
 
 impl ModelConfig {
     pub fn capabilities(&self) -> ModelCapabilities {
-        if let Some(value) = self.extra.get("capabilities") {
-            if let Ok(capabilities) = serde_json::from_value(value.clone()) {
-                return capabilities;
-            }
-        }
-
         let mut capabilities = ModelCapabilities {
             tools: self.function_call_available.unwrap_or(false),
             structured_output: if self.response_format_available.unwrap_or(false) {
@@ -154,6 +148,13 @@ impl ModelConfig {
         };
         if self.native_multimodal.unwrap_or(false) {
             capabilities.input_modalities.insert(Modality::Image);
+        }
+        if let Some(Value::Object(overrides)) = self.extra.get("capabilities") {
+            let mut inherited = serde_json::to_value(&capabilities).unwrap();
+            inherited.as_object_mut().unwrap().extend(overrides.clone());
+            if let Ok(explicit) = serde_json::from_value(inherited) {
+                return explicit;
+            }
         }
         capabilities
     }
@@ -343,6 +344,25 @@ impl LlmSettings {
 
         self.merge_default_chat_backends(default_backends);
         self.apply_python_chat_model_defaults();
+        for backend in self
+            .backends
+            .values()
+            .chain(self.embedding_backends.values())
+            .chain(self.rerank_backends.values())
+        {
+            for model in backend.models.values() {
+                if let Some(capabilities) = model.extra.get("capabilities") {
+                    serde_json::from_value::<ModelCapabilities>(capabilities.clone())?;
+                }
+                for binding in &model.endpoints {
+                    if let EndpointBinding::Config { extra, .. } = binding {
+                        if let Some(capabilities) = extra.get("capabilities") {
+                            serde_json::from_value::<ModelCapabilities>(capabilities.clone())?;
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -417,9 +437,26 @@ impl LlmSettings {
             })
             .ok_or_else(|| VvLlmError::EndpointNotFound(first_binding.endpoint_id().to_string()))?;
 
+        let mut effective_model = model.clone();
+        if let EndpointBinding::Config { extra, .. } = binding {
+            if let Some(overrides) = extra.get("capabilities") {
+                let mut capabilities = serde_json::to_value(model.capabilities())?;
+                let overrides = overrides.as_object().ok_or_else(|| {
+                    VvLlmError::Configuration("binding capabilities must be an object".to_string())
+                })?;
+                capabilities
+                    .as_object_mut()
+                    .unwrap()
+                    .extend(overrides.clone());
+                serde_json::from_value::<ModelCapabilities>(capabilities.clone())?;
+                effective_model
+                    .extra
+                    .insert("capabilities".to_string(), capabilities);
+            }
+        }
         Ok(ResolvedModelConfig {
             backend: backend.to_string(),
-            model: model.clone(),
+            model: effective_model,
             model_id: binding.model_id(&model.id).to_string(),
             endpoint: endpoint.clone(),
         })
@@ -492,34 +529,47 @@ fn merge_model_config(mut default_model: ModelConfig, user_model: ModelConfig) -
     if user_model.response_mapping.is_some() {
         default_model.response_mapping = user_model.response_mapping;
     }
-    default_model.extra.extend(user_model.extra);
-    if !user_has_capabilities {
-        if let Some(value) = default_model.extra.get("capabilities").cloned() {
-            if let Ok(mut capabilities) = serde_json::from_value::<ModelCapabilities>(value) {
-                if let Some(available) = user_function_call_available {
-                    capabilities.tools = available;
+    let mut inherited = default_model
+        .extra
+        .get("capabilities")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(available) = user_function_call_available {
+        if inherited.contains_key("tools") {
+            inherited.insert("tools".to_string(), Value::Bool(available));
+        }
+    }
+    if let Some(available) = user_response_format_available {
+        if inherited.contains_key("structured_output") {
+            inherited.insert(
+                "structured_output".to_string(),
+                Value::String(if available { "json_schema" } else { "none" }.to_string()),
+            );
+        }
+    }
+    if let Some(available) = user_native_multimodal {
+        if let Some(Value::Array(modalities)) = inherited.get_mut("input_modalities") {
+            if available {
+                if !modalities.iter().any(|value| value == "image") {
+                    modalities.push(Value::String("image".to_string()));
                 }
-                if let Some(available) = user_response_format_available {
-                    capabilities.structured_output = if available {
-                        StructuredOutputCapability::JsonSchema
-                    } else {
-                        StructuredOutputCapability::None
-                    };
-                }
-                if let Some(available) = user_native_multimodal {
-                    if available {
-                        capabilities.input_modalities.insert(Modality::Image);
-                    } else {
-                        capabilities.input_modalities.remove(&Modality::Image);
-                    }
-                }
-                if let Ok(value) = serde_json::to_value(capabilities) {
-                    default_model
-                        .extra
-                        .insert("capabilities".to_string(), value);
-                }
+            } else {
+                modalities.retain(|value| value != "image");
             }
         }
+    }
+    let user_capabilities = user_model.extra.get("capabilities").cloned();
+    default_model.extra.extend(user_model.extra);
+    if let Some(Value::Object(overrides)) = user_capabilities {
+        inherited.extend(overrides);
+        default_model
+            .extra
+            .insert("capabilities".to_string(), Value::Object(inherited));
+    } else if !user_has_capabilities && default_model.extra.contains_key("capabilities") {
+        default_model
+            .extra
+            .insert("capabilities".to_string(), Value::Object(inherited));
     }
     default_model
 }

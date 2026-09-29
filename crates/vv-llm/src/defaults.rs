@@ -1,9 +1,9 @@
-use crate::{BackendConfig, BackendType};
+use crate::{BackendConfig, BackendType, ModelCapabilities};
 use serde::Deserialize;
 use std::{collections::HashMap, sync::OnceLock};
 
 const DEFAULT_CHAT_CATALOG_JSON: &str =
-    include_str!("../contract/v1.1.0/catalog/default-chat-catalog.json");
+    include_str!("../contract/v1.2.0/catalog/default-chat-catalog.json");
 
 #[derive(Debug, Deserialize)]
 struct DefaultChatCatalog {
@@ -18,6 +18,16 @@ fn default_chat_catalog() -> &'static DefaultChatCatalog {
         serde_json::from_str(DEFAULT_CHAT_CATALOG_JSON)
             .expect("default chat catalog JSON must be valid")
     })
+}
+
+pub(crate) fn default_model_capabilities(model: &str) -> ModelCapabilities {
+    default_chat_catalog()
+        .backends
+        .values()
+        .flat_map(|backend| backend.models.values())
+        .find(|entry| entry.id == model)
+        .map(|entry| entry.capabilities())
+        .unwrap_or_default()
 }
 
 pub fn default_chat_backends() -> HashMap<String, BackendConfig> {

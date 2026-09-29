@@ -748,6 +748,11 @@ fn default_deepseek_catalog_exposes_typed_thinking_capabilities() {
     for id in ["deepseek-v4.1-flash", "deepseek-flash"] {
         let mut expected = serde_json::to_value(vision).unwrap();
         expected["id"] = serde_json::json!(id);
+        expected["capabilities"]["reasoning_efforts"] =
+            serde_json::json!(["none", "low", "high", "max"]);
+        expected["capabilities"]["reasoning_effort_aliases"] = serde_json::json!({
+            "minimal": "low", "medium": "high", "xhigh": "high", "ultra": "max"
+        });
         assert_eq!(serde_json::to_value(&backend.models[id]).unwrap(), expected);
     }
     let vision_capabilities = vision.capabilities();
@@ -770,6 +775,56 @@ fn default_deepseek_catalog_exposes_typed_thinking_capabilities() {
         .expect("deepseek-reasoner should exist")
         .capabilities();
     assert_eq!(reasoner.thinking, vv_llm::ThinkingCapability::AlwaysEnabled);
+}
+
+#[test]
+fn default_zhipuai_catalog_distinguishes_efforts_aliases_and_thinking() {
+    let settings = LlmSettings::from_json_str("{}").unwrap();
+    let backend = &settings.backends["zhipuai"];
+    for id in ["glm-5.2", "glm-5.3", "glm-5.3-flash"] {
+        let capabilities = backend.models[id].capabilities();
+        let levels = if id == "glm-5.2" {
+            vec!["none", "high", "max"]
+        } else {
+            vec!["low", "high", "max"]
+        };
+        assert_eq!(capabilities.reasoning_efforts.as_ref().unwrap(), &levels);
+        assert_eq!(
+            capabilities.thinking,
+            if id == "glm-5.2" {
+                vv_llm::ThinkingCapability::Configurable
+            } else {
+                vv_llm::ThinkingCapability::AlwaysEnabled
+            }
+        );
+        let aliases = capabilities
+            .reasoning_effort_aliases
+            .clone()
+            .unwrap_or_default();
+        let expected_aliases = if id == "glm-5.2" {
+            serde_json::json!({"minimal": "none", "low": "high", "medium": "high", "xhigh": "max"})
+        } else {
+            serde_json::json!({})
+        };
+        assert_eq!(serde_json::to_value(&aliases).unwrap(), expected_aliases);
+        capabilities
+            .validate_reasoning_effort(id, None, vv_llm::CapabilityPolicy::Strict)
+            .unwrap();
+        for effort in levels.into_iter().chain(aliases.keys().map(String::as_str)) {
+            capabilities
+                .validate_reasoning_effort(id, Some(effort), vv_llm::CapabilityPolicy::Strict)
+                .unwrap();
+        }
+        for effort in if id == "glm-5.2" {
+            vec!["ultra"]
+        } else {
+            vec!["none", "minimal", "medium", "xhigh", "ultra"]
+        } {
+            assert!(capabilities
+                .validate_reasoning_effort(id, Some(effort), vv_llm::CapabilityPolicy::Strict)
+                .is_err());
+        }
+    }
 }
 
 #[test]

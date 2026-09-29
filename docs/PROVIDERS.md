@@ -25,6 +25,8 @@ Implementation notes:
 - Serializes empty and reasoning-only assistant messages without tool calls as `content: ""`; reasoning stays in `reasoning_content`, while tool-call-only messages continue to omit `content`.
 - Maps `ChatTool` into function tools.
 - OpenAI-compatible requests support string tool modes and object `tool_choice`; direct Anthropic and Bedrock adapters accept only their mapped string modes and reject generic object forms.
+- Maps explicit `reasoning_effort` to the same top-level field, validates the selected model with the configured capability policy, and rejects conflicting controls.
+- Settings factories reject `response_api: true` because this adapter only implements Chat Completions.
 - Forwards `ChatRequestOptions::thinking` as the top-level `thinking` request field when explicitly set.
 - `ThinkingPreference` is normalized into that existing field before the adapter runs, so typed and legacy callers share the same request path.
 - Normalizes completion content, tool calls, and usage into `ChatResponse`.
@@ -48,6 +50,7 @@ Implementation notes:
 - Uses the `anthropic` Rust SDK.
 - Extracts system messages into the Anthropic system prompt field.
 - Maps text and image data URL content into Anthropic message content.
+- Maps explicit `reasoning_effort` to `output_config.effort` on the JSON request path, preserving sibling fields and rejecting conflicting controls.
 - Forwards `ChatRequestOptions::thinking` through the JSON request path when explicitly set.
 - `ThinkingPreference` is normalized into that existing field before the adapter runs.
 - Maps non-streaming text responses, input/output usage, cache reads, cache creation, and raw usage into `ChatResponse`.
@@ -65,6 +68,7 @@ Selected when `ResolvedModelConfig.endpoint.endpoint_type == "anthropic_bedrock"
 Implementation notes:
 
 - Uses `aws-sdk-bedrockruntime` Converse and ConverseStream.
+- Sends effort, thinking, and explicit extra fields through `additional_model_request_fields` after validating controls.
 - Requires `region` and AWS credentials in endpoint `credentials`.
 - Maps text, data URL images, assistant tool-use turns, and tool-result turns.
 - Maps `ChatTool` to Bedrock tool configuration.

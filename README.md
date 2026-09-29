@@ -272,6 +272,30 @@ for call in response.tool_calls {
 
 Tool-result turns use `MessageRole::Tool` with `tool_call_id`, and assistant tool-call turns use `Message.tool_calls`.
 
+## Reasoning effort
+
+`ModelCapabilities::reasoning_efforts` lists effective choices. `None` means unknown,
+and an empty list means unsupported. Omitted request effort uses the server default.
+Concrete adapters accept `with_capability_policy(CapabilityPolicy::Strict)`.
+For settings use `create_chat_client_from_resolved_with_policy(resolved, policy)`.
+The default is `Warn`; `Passthrough` skips support checks. Conflicting controls
+always fail. Anthropic effort maps to `output_config.effort`, including Bedrock's
+`additional_model_request_fields`.
+
+Select a different model through the request `model` or an endpoint binding's
+`model_id`. A conflicting `extra_body.model` is rejected even with passthrough.
+
+Endpoint binding capability overrides replace lists while preserving other
+model metadata. Registry `set_model_capabilities` configures per-model fallback
+metadata; incompatible routes are skipped without changing effort. OpenAI-compatible
+clients use Chat Completions and reject Responses endpoints in settings factories.
+
+`reasoning_effort_aliases` maps documented compatibility inputs to effective choices.
+Aliases are accepted only when their target remains in `reasoning_efforts`; requests
+retain the original input. Both lists and alias maps on bindings replace inherited
+fields. DeepSeek exposes low/high/max, plus none for off, with minimal → low,
+medium/xhigh → high and ultra → max. Aliases are not extra selectable intensities.
+
 ## Provider Extensions
 
 OpenAI-compatible providers sometimes expose extra request and response fields for
@@ -442,7 +466,7 @@ use vv_llm::utilities::{
 vv-llm-rs/
   Cargo.toml
   crates/vv-llm/
-    contract/v1.1.0/      # locked language-neutral schemas, fixtures, and catalog
+    contract/v1.2.0/      # locked language-neutral schemas, fixtures, and catalog
     src/
       chat_clients/       # Chat clients, stream normalization, Vertex auth
       contract.rs         # contract metadata and embedded manifest/lock accessors
@@ -471,8 +495,8 @@ The crate exposes `contract_metadata()`, `contract_manifest_json()`, and
 default; synchronization requires an explicit source:
 
 ```bash
-python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.1.0
-VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.1.0 python scripts/sync_contract.py
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.2.0
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.2.0 python scripts/sync_contract.py
 ```
 
 `python scripts/sync_contract.py --check` validates the packaged contract copy.

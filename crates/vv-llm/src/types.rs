@@ -63,6 +63,14 @@ pub enum Modality {
     Video,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CapabilityPolicy {
+    Strict,
+    #[default]
+    Warn,
+    Passthrough,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelCapabilities {
     #[serde(default)]
@@ -79,6 +87,50 @@ pub struct ModelCapabilities {
     pub parallel_tool_calls: bool,
     #[serde(default)]
     pub thinking: ThinkingCapability,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_reasoning_efforts"
+    )]
+    pub reasoning_efforts: Option<Vec<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_reasoning_effort_aliases"
+    )]
+    pub reasoning_effort_aliases: Option<HashMap<String, String>>,
+}
+
+fn deserialize_reasoning_efforts<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<String>>, D::Error> {
+    let values = Option::<Vec<String>>::deserialize(deserializer)?;
+    if let Some(values) = &values {
+        if values.iter().any(|value| value.trim().is_empty())
+            || values.iter().collect::<HashSet<_>>().len() != values.len()
+        {
+            return Err(D::Error::custom(
+                "reasoning_efforts must contain unique non-empty strings",
+            ));
+        }
+    }
+    Ok(values)
+}
+
+fn deserialize_reasoning_effort_aliases<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<HashMap<String, String>>, D::Error> {
+    let aliases = Option::<HashMap<String, String>>::deserialize(deserializer)?;
+    if aliases.as_ref().is_some_and(|values| {
+        values
+            .iter()
+            .any(|(alias, target)| alias.trim().is_empty() || target.trim().is_empty())
+    }) {
+        return Err(D::Error::custom(
+            "reasoning_effort_aliases must map non-empty strings to non-empty strings",
+        ));
+    }
+    Ok(aliases)
 }
 
 impl Default for ModelCapabilities {
@@ -91,12 +143,50 @@ impl Default for ModelCapabilities {
             streaming: true,
             parallel_tool_calls: false,
             thinking: ThinkingCapability::Unknown,
+            reasoning_efforts: None,
+            reasoning_effort_aliases: None,
         }
     }
 }
 
 impl ModelCapabilities {
+    pub fn validate_reasoning_effort(
+        &self,
+        model: &str,
+        effort: Option<&str>,
+        policy: CapabilityPolicy,
+    ) -> Result<(), VvLlmError> {
+        let Some(effort) = effort else {
+            return Ok(());
+        };
+        if policy == CapabilityPolicy::Passthrough {
+            return Ok(());
+        }
+        let message = match &self.reasoning_efforts {
+            None => format!("Model '{model}' reasoning_effort support is unknown"),
+            Some(levels) if !levels.iter().any(|level| level == effort)
+                && !self.reasoning_effort_aliases.as_ref().and_then(|aliases| aliases.get(effort)).is_some_and(|target| levels.contains(target)) => format!(
+                "Model '{model}' does not support reasoning_effort='{effort}'. Supported values: {}",
+                if levels.is_empty() { "(none)".to_string() } else { levels.join(", ") }
+            ),
+            Some(_) => return Ok(()),
+        };
+        if policy == CapabilityPolicy::Strict {
+            return Err(VvLlmError::Configuration(message));
+        }
+        eprintln!("{message}");
+        Ok(())
+    }
+
     pub fn validate_request(&self, request: &ChatRequest) -> Result<(), VvLlmError> {
+        let body = crate::chat_clients::reasoning::resolve_body(request, "validation")?;
+        crate::chat_clients::reasoning::validate_body(
+            &body,
+            &request.model,
+            "validation",
+            self,
+            CapabilityPolicy::Strict,
+        )?;
         let mut conflicts = Vec::new();
         if !request.tools.is_empty() && !self.tools {
             conflicts.push("the model does not support tools");
@@ -750,7 +840,7 @@ fn canonical_chat_request_validator() -> Result<&'static jsonschema::Validator, 
     VALIDATOR
         .get_or_init(|| {
             let schema: serde_json::Value = serde_json::from_str(include_str!(
-                "../contract/v1.1.0/schemas/chat-request.v1.schema.json"
+                "../contract/v1.2.0/schemas/chat-request.v1.schema.json"
             ))
             .map_err(|error| format!("failed to parse canonical chat request schema: {error}"))?;
             jsonschema::options()

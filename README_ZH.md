@@ -262,6 +262,17 @@ for call in response.tool_calls {
 
 工具结果轮次使用带 `tool_call_id` 的 `MessageRole::Tool`；assistant 发出的工具调用放在 `Message.tool_calls` 中。
 
+## 推理强度
+
+`ModelCapabilities::reasoning_efforts` 为 None 表示未知，空列表表示不支持。请求省略强度使用服务端默认值。具体适配器支持 `with_capability_policy(CapabilityPolicy::Strict)`；settings 工厂可使用 `create_chat_client_from_resolved_with_policy`。默认 Warn，也支持 Passthrough，冲突参数始终报错。
+
+切换模型请使用请求的 `model` 或端点绑定的 `model_id`。`extra_body.model`
+与选中的实际模型冲突时，即使使用 passthrough 也会报错。
+
+Anthropic 映射为 `output_config.effort`，Bedrock 同时传入额外模型请求字段。endpoint 绑定可局部覆盖能力；registry 的 `set_model_capabilities` 按模型配置 fallback，保持原强度。OpenAI 兼容客户端使用 Chat Completions，settings 工厂会拒绝 Responses endpoint。
+
+`reasoning_effort_aliases` 单独记录兼容输入及其实际目标。只有目标仍在 `reasoning_efforts` 中时才接受别名，请求原值由服务商映射。绑定中的档位列表和别名映射均整体替换。DeepSeek 实际为 low/high/max 三档，none 表示关闭；minimal → low，medium/xhigh → high，ultra → max。兼容别名不作为独立档位展示。
+
 ## Provider 扩展字段
 
 OpenAI-compatible provider 经常会暴露额外的请求 / 响应字段，用于 reasoning trace、thinking 控制或供应商专有工具元数据。`vv-llm` 把这些能力放在 provider-neutral 的类型化字段里，调用方不需要自己手写协议转换：
@@ -426,7 +437,7 @@ use vv_llm::utilities::{
 vv-llm-rs/
   Cargo.toml
   crates/vv-llm/
-    contract/v1.1.0/      # 锁定的跨语言 schema、fixture 与模型目录
+    contract/v1.2.0/      # 锁定的跨语言 schema、fixture 与模型目录
     src/
       chat_clients/       # Chat client、stream 归一化、Vertex 鉴权
       contract.rs         # contract metadata 与 manifest/lock accessor
@@ -455,8 +466,8 @@ crate 提供 `contract_metadata()`、`contract_manifest_json()` 与
 默认只离线校验 vendored lock；同步必须显式指定 source：
 
 ```bash
-python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.1.0
-VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.1.0 python scripts/sync_contract.py
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.2.0
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.2.0 python scripts/sync_contract.py
 ```
 
 `python scripts/sync_contract.py --check` 校验包内的 contract 副本。

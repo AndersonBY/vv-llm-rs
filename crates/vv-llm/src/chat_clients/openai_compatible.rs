@@ -1,6 +1,6 @@
 use crate::{
-    ChatRequest, ChatResponse, ChatStreamDelta, ChatTool, ChatUsage, Message, MessageContent,
-    MessageRole, ToolCall, ToolChoice, VvLlmError,
+    CapabilityPolicy, ChatRequest, ChatResponse, ChatStreamDelta, ChatTool, ChatUsage, Message,
+    MessageContent, MessageRole, ModelCapabilities, ToolCall, ToolChoice, VvLlmError,
 };
 use async_openai::types::chat::{
     ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessage,
@@ -20,7 +20,7 @@ use futures_util::{stream, StreamExt};
 use serde_json::{json, Value};
 use std::{pin::Pin, time::SystemTime};
 
-use super::{ChatClient, ChatStream};
+use super::{reasoning, ChatClient, ChatStream};
 
 #[derive(Debug, Clone, Copy)]
 struct UsageNormalizationPolicy {
@@ -48,6 +48,8 @@ pub struct OpenAiCompatibleChatClient {
     api_base: String,
     api_key: String,
     usage_policy: UsageNormalizationPolicy,
+    capabilities: Option<ModelCapabilities>,
+    capability_policy: CapabilityPolicy,
     http: reqwest::Client,
 }
 
@@ -79,14 +81,40 @@ impl OpenAiCompatibleChatClient {
             api_base: api_base.into(),
             api_key: api_key.into(),
             usage_policy,
+            capabilities: None,
+            capability_policy: CapabilityPolicy::Warn,
             http: reqwest::Client::new(),
         }
     }
 
+    pub fn with_capabilities(mut self, capabilities: ModelCapabilities) -> Self {
+        self.capabilities = Some(capabilities);
+        self
+    }
+
+    pub fn with_capability_policy(mut self, policy: CapabilityPolicy) -> Self {
+        self.capability_policy = policy;
+        self
+    }
+
     pub fn to_openai_json(&self, request: &ChatRequest) -> Result<serde_json::Value, VvLlmError> {
+        let model = if request.model.is_empty() {
+            &self.model
+        } else {
+            &request.model
+        };
+        let body = reasoning::resolve_body(request, "chat")?;
+        reasoning::validate_body(
+            &body,
+            model,
+            "chat",
+            &reasoning::model_capabilities(model, &self.model, self.capabilities.as_ref()),
+            self.capability_policy,
+        )?;
         let openai_request = self.to_openai_request(request)?;
         let mut json = serde_json::to_value(openai_request)?;
         merge_openai_request_extensions(&mut json, request);
+        merge_extra_body(&mut json, &body);
         Ok(json)
     }
 

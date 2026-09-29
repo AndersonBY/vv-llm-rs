@@ -1,10 +1,11 @@
 mod anthropic;
 mod openai_compatible;
+pub(crate) mod reasoning;
 mod vertex;
 
 use crate::{
-    utilities::normalize_image_inputs_async, BackendType, ChatRequest, ChatStreamDelta,
-    ResolvedModelConfig, VvLlmError,
+    utilities::normalize_image_inputs_async, BackendType, CapabilityPolicy, ChatRequest,
+    ChatStreamDelta, ModelCapabilities, ResolvedModelConfig, VvLlmError,
 };
 use async_trait::async_trait;
 use futures_core::Stream;
@@ -35,22 +36,65 @@ pub fn create_chat_client(
     api_base: impl Into<String>,
     api_key: impl Into<String>,
 ) -> Box<dyn ChatClient> {
-    let model = model.into();
-    let api_base = api_base.into();
-    let api_key = api_key.into();
+    create_configured_chat_client(
+        backend,
+        model.into(),
+        api_base.into(),
+        api_key.into(),
+        None,
+        CapabilityPolicy::Warn,
+    )
+}
 
+fn create_configured_chat_client(
+    backend: BackendType,
+    model: String,
+    api_base: String,
+    api_key: String,
+    capabilities: Option<ModelCapabilities>,
+    policy: CapabilityPolicy,
+) -> Box<dyn ChatClient> {
     match backend {
-        BackendType::Anthropic => Box::new(AnthropicChatClient::new(model, api_base, api_key)),
-        BackendType::Moonshot => Box::new(OpenAiCompatibleChatClient::for_moonshot(
-            model, api_base, api_key,
-        )),
-        _ => Box::new(OpenAiCompatibleChatClient::new(model, api_base, api_key)),
+        BackendType::Anthropic => {
+            let mut client =
+                AnthropicChatClient::new(model, api_base, api_key).with_capability_policy(policy);
+            if let Some(capabilities) = capabilities {
+                client = client.with_capabilities(capabilities);
+            }
+            Box::new(client)
+        }
+        _ => {
+            let mut client = if backend == BackendType::Moonshot {
+                OpenAiCompatibleChatClient::for_moonshot(model, api_base, api_key)
+            } else {
+                OpenAiCompatibleChatClient::new(model, api_base, api_key)
+            };
+            client = client.with_capability_policy(policy);
+            if let Some(capabilities) = capabilities {
+                client = client.with_capabilities(capabilities);
+            }
+            Box::new(client)
+        }
     }
 }
 
 pub fn create_chat_client_from_resolved(
     resolved: ResolvedModelConfig,
 ) -> Result<Box<dyn ChatClient>, VvLlmError> {
+    create_chat_client_from_resolved_with_policy(resolved, CapabilityPolicy::Warn)
+}
+
+pub fn create_chat_client_from_resolved_with_policy(
+    resolved: ResolvedModelConfig,
+    policy: CapabilityPolicy,
+) -> Result<Box<dyn ChatClient>, VvLlmError> {
+    if resolved.endpoint.response_api {
+        return Err(VvLlmError::Configuration(
+            "Responses endpoints are not supported by the Rust OpenAI-compatible client"
+                .to_string(),
+        ));
+    }
+    let capabilities = resolved.model.capabilities();
     let max_image_dimension = resolved.model.max_image_dimension;
     let backend = resolved.backend.as_str();
     let model = resolved.model_id;
@@ -61,21 +105,25 @@ pub fn create_chat_client_from_resolved(
         && (resolved.endpoint.is_bedrock
             || resolved.endpoint.endpoint_type.as_deref() == Some("anthropic_bedrock"))
     {
-        let client = Box::new(AnthropicBedrockChatClient::new(
-            model,
-            api_base,
-            resolved.endpoint.region,
-            resolved.endpoint.credentials,
-        )?) as Box<dyn ChatClient>;
+        let client = Box::new(
+            AnthropicBedrockChatClient::new(
+                model,
+                api_base,
+                resolved.endpoint.region,
+                resolved.endpoint.credentials,
+            )?
+            .with_capabilities(capabilities)
+            .with_capability_policy(policy),
+        ) as Box<dyn ChatClient>;
         return with_model_image_limit(client, max_image_dimension);
     }
 
     if resolved.endpoint.endpoint_type.as_deref() == Some("openai_vertex") {
-        let client = Box::new(VertexOpenAiChatClient::new(
-            model,
-            api_base,
-            resolved.endpoint.credentials,
-        )?) as Box<dyn ChatClient>;
+        let client = Box::new(
+            VertexOpenAiChatClient::new(model, api_base, resolved.endpoint.credentials)?
+                .with_capabilities(capabilities)
+                .with_capability_policy(policy),
+        ) as Box<dyn ChatClient>;
         return with_model_image_limit(client, max_image_dimension);
     }
 
@@ -105,7 +153,14 @@ pub fn create_chat_client_from_resolved(
     };
 
     with_model_image_limit(
-        create_chat_client(backend, model, api_base, api_key),
+        create_configured_chat_client(
+            backend,
+            model,
+            api_base,
+            api_key,
+            Some(capabilities),
+            policy,
+        ),
         max_image_dimension,
     )
 }
