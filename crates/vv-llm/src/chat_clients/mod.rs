@@ -17,6 +17,10 @@ pub use vertex::{GoogleAccessToken, GoogleAccessTokenProvider, VertexOpenAiChatC
 
 pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatStreamDelta, VvLlmError>> + Send>>;
 
+#[allow(
+    clippy::double_must_use,
+    reason = "async_trait adds must_use to futures"
+)]
 #[async_trait]
 pub trait ChatClient: Send + Sync {
     fn provider_name(&self) -> &'static str;

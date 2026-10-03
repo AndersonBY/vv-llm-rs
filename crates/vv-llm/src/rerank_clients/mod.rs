@@ -5,6 +5,10 @@ use async_trait::async_trait;
 
 pub use custom_json_http::{CustomJsonHttpRerankClient, RerankMapping};
 
+#[allow(
+    clippy::double_must_use,
+    reason = "async_trait adds must_use to futures"
+)]
 #[async_trait]
 pub trait RerankClient: Send + Sync {
     fn provider_name(&self) -> &'static str;

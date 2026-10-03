@@ -28,6 +28,10 @@ impl MiddlewareContext {
     }
 }
 
+#[allow(
+    clippy::double_must_use,
+    reason = "async_trait adds must_use to futures"
+)]
 #[async_trait]
 pub trait ChatMiddlewareV1: Send + Sync {
     fn api_version(&self) -> &'static str {

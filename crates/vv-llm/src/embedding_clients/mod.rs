@@ -5,6 +5,10 @@ use async_trait::async_trait;
 
 pub use openai_compatible::OpenAiCompatibleEmbeddingClient;
 
+#[allow(
+    clippy::double_must_use,
+    reason = "async_trait adds must_use to futures"
+)]
 #[async_trait]
 pub trait EmbeddingClient: Send + Sync {
     fn provider_name(&self) -> &'static str;
