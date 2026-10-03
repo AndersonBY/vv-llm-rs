@@ -30,7 +30,7 @@ Run the full local suite after code changes that touch public types, settings, p
 - `crates/vv-llm/tests/chat.rs` checks chat adapter request shapes, factory routing, multimodal mapping, tools, multi-turn tool messages, stream normalization, usage/cache normalization, and Vertex token cache behavior.
 - `crates/vv-llm/tests/retrieval.rs` checks embedding and rerank request mapping.
 - `crates/vv-llm/tests/utilities.rs` checks message normalization, tokenizer behavior, fallback counting, and retry metadata.
-- `crates/vv-llm/tests/protocol_fixtures.rs` checks the versioned OpenAI-compatible request, response, and stream fixture plus the separate retry-header fixture, loaded from `crates/vv-llm/contract/v1.2.0/fixtures/`.
+- `crates/vv-llm/tests/protocol_fixtures.rs` checks the versioned OpenAI-compatible request, response, and stream fixture plus the separate retry-header fixture, loaded from `crates/vv-llm/contract/v1.2.1/fixtures/`.
 - `crates/vv-llm/tests/middleware.rs` checks versioned hooks, retry integration, and response metadata.
 - `crates/vv-llm/tests/reasoning.rs` checks shared effort cases, adapter mapping/conflicts, model changes, capability policies, and endpoint overrides.
 - `crates/vv-llm/tests/registry.rs` checks capability-aware fallback, non-fallback errors, and the first-visible-chunk boundary.

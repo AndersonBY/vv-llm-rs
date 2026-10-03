@@ -950,6 +950,46 @@ fn default_qwen_38_catalog_exposes_hosted_api_capabilities() {
 }
 
 #[test]
+fn default_qwen_flash_next_keeps_open_weight_limits_separate() {
+    let settings = LlmSettings::from_json_str(r#"{
+      "endpoints": [{"id":"dashscope-test","api_base":"https://example.invalid/v1","api_key":"test-key"}],
+      "backends": {"qwen": {"models": {"qwen3.8-flash-next": {
+        "id":"qwen3.8-flash-next",
+        "endpoints":[{"endpoint_id":"dashscope-test","model_id":"qwen3.8-flash"}]
+      }}}}
+    }"#).unwrap();
+    let model = &settings.backends["qwen"].models["qwen3.8-flash-next"];
+    assert_eq!(model.id, "qwen3.8-flash-next");
+    assert!(!settings.backends["qwen"]
+        .models
+        .contains_key("qwen3.8-flash"));
+    assert_eq!(model.context_length, Some(262_144));
+    assert_eq!(model.max_output_tokens, None);
+    assert_eq!(model.response_format_available, Some(false));
+    let capabilities = model.capabilities();
+    assert!(capabilities.tools);
+    assert_eq!(
+        capabilities.thinking,
+        vv_llm::ThinkingCapability::Configurable
+    );
+    assert_eq!(
+        capabilities.reasoning_efforts,
+        Some(vec!["low".into(), "medium".into(), "xhigh".into()])
+    );
+    assert!(capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Image));
+    assert!(capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Video));
+    let resolved = settings
+        .resolve_chat_model(BackendType::Qwen, "qwen3.8-flash-next")
+        .unwrap();
+    assert_eq!(resolved.model.id, "qwen3.8-flash-next");
+    assert_eq!(resolved.model_id, "qwen3.8-flash");
+}
+
+#[test]
 fn legacy_overrides_update_default_capabilities_without_losing_thinking_metadata() {
     let raw = r#"{
       "endpoints": [{"id":"deepseek-default","api_base":"https://api.deepseek.com","api_key":"sk-test"}],

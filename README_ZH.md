@@ -437,7 +437,7 @@ use vv_llm::utilities::{
 vv-llm-rs/
   Cargo.toml
   crates/vv-llm/
-    contract/v1.2.0/      # 锁定的跨语言 schema、fixture 与模型目录
+    contract/v1.2.1/      # 锁定的跨语言 schema、fixture 与模型目录
     src/
       chat_clients/       # Chat client、stream 归一化、Vertex 鉴权
       contract.rs         # contract metadata 与 manifest/lock accessor
@@ -466,8 +466,8 @@ crate 提供 `contract_metadata()`、`contract_manifest_json()` 与
 默认只离线校验 vendored lock；同步必须显式指定 source：
 
 ```bash
-python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.2.0
-VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.2.0 python scripts/sync_contract.py
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.2.1
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.2.1 python scripts/sync_contract.py
 ```
 
 `python scripts/sync_contract.py --check` 校验包内的 contract 副本。

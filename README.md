@@ -466,7 +466,7 @@ use vv_llm::utilities::{
 vv-llm-rs/
   Cargo.toml
   crates/vv-llm/
-    contract/v1.2.0/      # locked language-neutral schemas, fixtures, and catalog
+    contract/v1.2.1/      # locked language-neutral schemas, fixtures, and catalog
     src/
       chat_clients/       # Chat clients, stream normalization, Vertex auth
       contract.rs         # contract metadata and embedded manifest/lock accessors
@@ -495,8 +495,8 @@ The crate exposes `contract_metadata()`, `contract_manifest_json()`, and
 default; synchronization requires an explicit source:
 
 ```bash
-python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.2.0
-VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.2.0 python scripts/sync_contract.py
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.2.1
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.2.1 python scripts/sync_contract.py
 ```
 
 `python scripts/sync_contract.py --check` validates the packaged contract copy.
