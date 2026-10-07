@@ -437,7 +437,7 @@ use vv_llm::utilities::{
 vv-llm-rs/
   Cargo.toml
   crates/vv-llm/
-    contract/v1.2.2/      # 锁定的跨语言 schema、fixture 与模型目录
+    contract/v1.3.0/      # 锁定的跨语言 schema、fixture 与模型目录
     src/
       chat_clients/       # Chat client、stream 归一化、Vertex 鉴权
       contract.rs         # contract metadata 与 manifest/lock accessor
@@ -466,8 +466,8 @@ crate 提供 `contract_metadata()`、`contract_manifest_json()` 与
 默认只离线校验 vendored lock；同步必须显式指定 source：
 
 ```bash
-python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.2.2
-VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.2.2 python scripts/sync_contract.py
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.3.0
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.3.0 python scripts/sync_contract.py
 ```
 
 `python scripts/sync_contract.py --check` 校验包内的 contract 副本。
@@ -499,3 +499,23 @@ Gemini 3 及后续模型的请求会省略 `temperature`、`top_p`、`top_k` 和
 不会猜测数值到档位的映射。需要指定思考强度时使用 `reasoning_effort` 或
 Google 的 `thinking_config.thinking_level`，不要同时设置两者。3.7 Flash 和 3.8 Flash
 支持 low/medium/high，不支持 minimal；Gemini 2.5 保留原有预算与采样行为。
+
+## Decisions
+
+`DecisionClient` 与 `ChatClient` 并列。通过
+`LlmSettings::resolve_decision_model("openai", "gpt-6-luna")` 解析模型，
+再传给 `create_decision_client_from_resolved`；也可以直接创建
+`OpenAiDecisionClient`。客户端提供 `create(DecisionRequest)`，
+保留概率、评分置信度、分布、拒答和可选用量，由调用方选择阈值。
+类型支持 `from_contract`/`to_contract`。
+
+`decision_backends` 使用现有模型和绑定结构，并共享 `endpoints`。
+模型能力来自固定版本的共享目录；未知或不支持的能力会在发送请求前报错。
+choice 使用 `choices`，score 使用 `rubric`，返回
+`score`、`confidence` 和 `probabilities`。图片仅支持内联 base64。
+适配器使用现有 reqwest，因为固定版本的 async-openai 尚未提供 Decisions 资源。
+HTTP 错误保留状态码、请求 ID 和 Retry-After。
+
+真实测试设置 `VV_LLM_RUN_LIVE_TESTS=1` 和明确的
+`VV_LLM_SETTINGS_JSON`，再运行 `cargo run --example decisions`。
+测试可在内存中复用现有 OpenAI 聊天绑定，只输出结构、用量和错误类别。

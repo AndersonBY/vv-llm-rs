@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::{collections::HashMap, sync::OnceLock};
 
 const DEFAULT_CHAT_CATALOG_JSON: &str =
-    include_str!("../contract/v1.2.2/catalog/default-chat-catalog.json");
+    include_str!("../contract/v1.3.0/catalog/default-chat-catalog.json");
 
 #[derive(Debug, Deserialize)]
 struct DefaultChatCatalog {
@@ -39,4 +39,21 @@ pub fn default_chat_model(backend: BackendType) -> Option<&'static str> {
         .default_models
         .get(backend.as_str())
         .map(String::as_str)
+}
+
+/// Decision models are selected from the same pinned source catalog.
+pub fn default_decision_backends() -> HashMap<String, BackendConfig> {
+    default_chat_backends()
+        .into_iter()
+        .filter_map(|(name, mut backend)| {
+            backend.models.retain(|_, model| {
+                model
+                    .capabilities()
+                    .decision_types
+                    .as_ref()
+                    .is_some_and(|types| !types.is_empty())
+            });
+            (!backend.models.is_empty()).then_some((name, backend))
+        })
+        .collect()
 }

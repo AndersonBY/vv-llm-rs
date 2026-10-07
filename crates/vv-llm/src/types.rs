@@ -96,9 +96,28 @@ pub struct ModelCapabilities {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_decision_types"
+    )]
+    pub decision_types: Option<Vec<crate::decision_clients::DecisionType>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
         deserialize_with = "deserialize_reasoning_effort_aliases"
     )]
     pub reasoning_effort_aliases: Option<HashMap<String, String>>,
+}
+
+fn deserialize_decision_types<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<crate::decision_clients::DecisionType>>, D::Error> {
+    let values = Option::<Vec<crate::decision_clients::DecisionType>>::deserialize(deserializer)?;
+    if values
+        .as_ref()
+        .is_some_and(|values| values.iter().collect::<HashSet<_>>().len() != values.len())
+    {
+        return Err(D::Error::custom("decision_types must be unique"));
+    }
+    Ok(values)
 }
 
 fn deserialize_reasoning_efforts<'de, D: Deserializer<'de>>(
@@ -143,6 +162,7 @@ impl Default for ModelCapabilities {
             streaming: true,
             parallel_tool_calls: false,
             thinking: ThinkingCapability::Unknown,
+            decision_types: None,
             reasoning_efforts: None,
             reasoning_effort_aliases: None,
         }
@@ -840,7 +860,7 @@ fn canonical_chat_request_validator() -> Result<&'static jsonschema::Validator, 
     VALIDATOR
         .get_or_init(|| {
             let schema: serde_json::Value = serde_json::from_str(include_str!(
-                "../contract/v1.2.2/schemas/chat-request.v1.schema.json"
+                "../contract/v1.3.0/schemas/chat-request.v1.schema.json"
             ))
             .map_err(|error| format!("failed to parse canonical chat request schema: {error}"))?;
             jsonschema::options()

@@ -466,7 +466,7 @@ use vv_llm::utilities::{
 vv-llm-rs/
   Cargo.toml
   crates/vv-llm/
-    contract/v1.2.2/      # locked language-neutral schemas, fixtures, and catalog
+    contract/v1.3.0/      # locked language-neutral schemas, fixtures, and catalog
     src/
       chat_clients/       # Chat clients, stream normalization, Vertex auth
       contract.rs         # contract metadata and embedded manifest/lock accessors
@@ -495,8 +495,8 @@ The crate exposes `contract_metadata()`, `contract_manifest_json()`, and
 default; synchronization requires an explicit source:
 
 ```bash
-python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.2.2
-VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.2.2 python scripts/sync_contract.py
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.3.0
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.3.0 python scripts/sync_contract.py
 ```
 
 `python scripts/sync_contract.py --check` validates the packaged contract copy.
@@ -531,3 +531,26 @@ mapping is inferred. Use `reasoning_effort` or Google `thinking_config.thinking_
 for explicit control, but not both. Gemini 3.7 Flash and 3.8 Flash expose
 low/medium/high; minimal is unsupported. Gemini 2.5 retains its budget and sampling
 behavior. Input objects are not mutated.
+
+## Decisions
+
+`DecisionClient` is independent from `ChatClient`. Resolve a model through
+`LlmSettings::resolve_decision_model("openai", "gpt-6-luna")` and pass the result to
+`create_decision_client_from_resolved`, or construct `OpenAiDecisionClient` directly.
+The client exposes `create(DecisionRequest)` and preserves predicate probabilities,
+choice/score distributions, refusals, and optional usage counts. Callers choose
+thresholds. Canonical types expose `from_contract`/`to_contract`.
+
+`decision_backends` uses the same model/binding shape as other backend maps and
+shares `endpoints`. Model capabilities come from the pinned catalog; unknown or
+unsupported decision types fail before transport. Images require inline base64.
+The adapter uses typed vv-llm types over existing reqwest because the pinned
+`async-openai` version has no Decisions resource. HTTP errors retain the shared
+status, request-id and Retry-After handling.
+
+For a real smoke test, set `VV_LLM_RUN_LIVE_TESTS=1` and an explicit
+`VV_LLM_SETTINGS_JSON`, then run `cargo run --example decisions`. The runner can
+reuse an existing OpenAI chat binding in memory and logs only shape/count flags.
+
+Choice questions use `choices`; score questions use `rubric` and return
+`score`, `confidence`, and `probabilities`. Choice IDs can be strings or booleans.

@@ -7,7 +7,7 @@ use vv_llm::{
 #[test]
 fn shared_reasoning_effort_cases() {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../contract/v1.2.2/fixtures/reasoning-effort.v1.json"
+        "../contract/v1.3.0/fixtures/reasoning-effort.v1.json"
     ))
     .unwrap();
     for case in fixture["capability_cases"].as_array().unwrap() {
@@ -121,7 +121,7 @@ fn adapters_validate_selected_model_and_support_passthrough() {
 #[test]
 fn settings_binding_overrides_do_not_mutate_model_metadata() {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../contract/v1.2.2/fixtures/settings-resolution.v1.json"
+        "../contract/v1.3.0/fixtures/settings-resolution.v1.json"
     ))
     .unwrap();
     let settings = LlmSettings::from_json_str(&fixture["settings"].to_string()).unwrap();

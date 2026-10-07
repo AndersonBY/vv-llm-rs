@@ -200,6 +200,8 @@ pub struct LlmSettings {
     pub embedding_backends: HashMap<String, BackendConfig>,
     #[serde(default)]
     pub rerank_backends: HashMap<String, BackendConfig>,
+    #[serde(default)]
+    pub decision_backends: HashMap<String, BackendConfig>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
@@ -310,6 +312,14 @@ impl LlmSettings {
         self.resolve_model_in_map(&self.backends, backend.as_str(), model_id)
     }
 
+    pub fn resolve_decision_model(
+        &self,
+        backend: &str,
+        model_id: &str,
+    ) -> Result<ResolvedModelConfig, VvLlmError> {
+        self.resolve_model_in_map(&self.decision_backends, backend, model_id)
+    }
+
     pub fn resolve_embedding_model(
         &self,
         backend: &str,
@@ -344,11 +354,34 @@ impl LlmSettings {
 
         self.merge_default_chat_backends(default_backends);
         self.apply_python_chat_model_defaults();
+        for (name, default) in crate::defaults::default_decision_backends() {
+            let mut user = self.decision_backends.remove(&name);
+            if let Some(user) = &mut user {
+                for (key, model) in &mut user.models {
+                    if !default.models.contains_key(key) {
+                        if let Some(base) = default
+                            .models
+                            .values()
+                            .find(|candidate| candidate.id == model.id)
+                        {
+                            *model = merge_model_config(base.clone(), model.clone());
+                        }
+                    }
+                }
+            }
+            let mut backend = match user {
+                Some(user) => merge_backend_config(default, user),
+                None => default,
+            };
+            apply_default_endpoint(&mut backend);
+            self.decision_backends.insert(name, backend);
+        }
         for backend in self
             .backends
             .values()
             .chain(self.embedding_backends.values())
             .chain(self.rerank_backends.values())
+            .chain(self.decision_backends.values())
         {
             for model in backend.models.values() {
                 if let Some(capabilities) = model.extra.get("capabilities") {

@@ -15,7 +15,7 @@ vv-llm-rs/
     test_sync_contract.py
   crates/vv-llm/
     Cargo.toml
-    contract/v1.2.2/       # locked language-neutral schemas, fixtures, and catalog
+    contract/v1.3.0/       # locked language-neutral schemas, fixtures, and catalog
     src/
       lib.rs
       contract.rs
@@ -162,7 +162,7 @@ feature replacement for the Python package. Keep these boundaries explicit:
 | Rate limiting | Active memory, Redis, and DiskCache RPM/TPM limiters (optional extras) | Parses endpoint/global RPM/TPM settings but does not enforce a local/distributed limiter | Rust retry handling of 429/`Retry-After` is not rate-limit enforcement |
 | Token counting | Local model tokenizers, provider/token-server fallback, and optional FastAPI token server | Local `tiktoken-rs`, configured token-server/provider-tokenizer fallback, no bundled server executable | Rust consumes a token server; it does not ship the Python FastAPI server |
 | Settings | Shared `backends`/retrieval fields | Shared `backends`/retrieval fields, string/object bindings, and transport metadata | The JSON shape is shared; runtime-specific loading remains independent |
-| Contract artifacts | Vendored `vv-llm-contract` 1.2.2 schemas, fixtures, catalog, and lock | Vendored same release with lock SHA pin and compile-time catalog/fixture use | JSON wire semantics are shared; runtime orchestration remains language-specific |
+| Contract artifacts | Vendored `vv-llm-contract` 1.3.0 schemas, fixtures, catalog, and lock | Vendored same release with lock SHA pin and compile-time catalog/fixture use | JSON wire semantics are shared; runtime orchestration remains language-specific |
 
 ## Adapter Boundaries
 
@@ -218,3 +218,10 @@ retry, and fallback conformance; it does not emulate provider wire protocols.
 Effort metadata separates effective `reasoning_efforts` from
 `reasoning_effort_aliases`. Alias targets must belong to the resolved list;
 binding maps replace model maps, and adapters retain the requested string.
+
+## Decision Clients
+
+`DecisionClient` is a separate async trait with `create(DecisionRequest)`.
+`decision_backends` resolves through the shared settings machinery and pinned
+catalog; `create_decision_client_from_resolved` owns the OpenAI adapter. Public
+decision types preserve probabilities and refusals without chat message mapping.

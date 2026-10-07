@@ -18,15 +18,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 
-CONTRACT_VERSION = "1.2.2"
+CONTRACT_VERSION = "1.3.0"
 CONTRACT_METADATA = {
     "contract_version": CONTRACT_VERSION,
     "schema_version": 2,
     "fixture_version": 2,
-    "catalog_revision": 17,
+    "catalog_revision": 18,
 }
 CONTRACT_CONSUMER_LOCK_SHA256 = (
-    "3c46ac48a35886c03e367e5bab06b31835f5475b72e83bcb7af8f2be4eccfde6"
+    "929679bd43f8092bae4171179cd405f664ae15fab52ce9a88c67e86c6027fdb9"
 )
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "crates" / "vv-llm" / "contract" / f"v{CONTRACT_VERSION}"

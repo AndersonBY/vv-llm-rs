@@ -2,6 +2,7 @@
 
 pub mod chat_clients;
 pub mod contract;
+pub mod decision_clients;
 pub mod defaults;
 pub mod embedding_clients;
 pub mod middleware;
@@ -23,7 +24,15 @@ pub use contract::{
     CONTRACT_CONSUMER_LOCK_SHA256, CONTRACT_FIXTURE_VERSION, CONTRACT_MANIFEST_JSON,
     CONTRACT_METADATA, CONTRACT_SCHEMA_VERSION, CONTRACT_VERSION,
 };
-pub use defaults::{default_chat_backends, default_chat_model};
+pub use decision_clients::{
+    create_decision_client, create_decision_client_from_resolved, ChoiceProbability, ChoiceValue,
+    DecisionAnswer, DecisionChoice, DecisionClient, DecisionContent, DecisionImageDetail,
+    DecisionInput, DecisionInputTokenDetails, DecisionLevel, DecisionMessage,
+    DecisionMessageContent, DecisionOutputTokenDetails, DecisionQuestion, DecisionRequest,
+    DecisionResponse, DecisionRubric, DecisionType, DecisionUsage, LevelProbability,
+    OpenAiDecisionClient,
+};
+pub use defaults::{default_chat_backends, default_chat_model, default_decision_backends};
 pub use embedding_clients::{create_embedding_client, EmbeddingClient};
 pub use middleware::{ChatMiddlewareV1, MiddlewareChatClient, MiddlewareContext};
 pub use registry::{FallbackChatClient, FallbackRoute, ProviderRegistration, ProviderRegistry};

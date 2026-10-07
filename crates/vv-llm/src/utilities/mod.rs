@@ -1,3 +1,4 @@
+pub(crate) mod http;
 mod media_processing;
 mod messages;
 mod retry;

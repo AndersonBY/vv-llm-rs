@@ -124,3 +124,11 @@ If adding a new rerank protocol, prefer a separate adapter when the response sem
 - Add stream-normalization tests for content, reasoning, tool-call chunks, usage, and done markers when streaming changes.
 - Add or update live tests for the real transport if credentials are available.
 - Update `README.md`, `README_ZH.md`, and this docs directory when externally visible behavior changes.
+
+## OpenAI Decisions
+
+Module: `crates/vv-llm/src/decision_clients/mod.rs`. Uses typed vv-llm request/response
+structs and existing reqwest because async-openai 0.40.2 does not expose Decisions.
+Only OpenAI/default endpoint transports are supported. The adapter validates
+capabilities, canonical request shapes, answer correspondence and distributions,
+and reuses `utilities/http.rs` error normalization. It does not choose thresholds.
