@@ -7,7 +7,7 @@ use vv_llm::{
 #[test]
 fn shared_reasoning_effort_cases() {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../contract/v1.2.1/fixtures/reasoning-effort.v1.json"
+        "../contract/v1.2.2/fixtures/reasoning-effort.v1.json"
     ))
     .unwrap();
     for case in fixture["capability_cases"].as_array().unwrap() {
@@ -121,7 +121,7 @@ fn adapters_validate_selected_model_and_support_passthrough() {
 #[test]
 fn settings_binding_overrides_do_not_mutate_model_metadata() {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../contract/v1.2.1/fixtures/settings-resolution.v1.json"
+        "../contract/v1.2.2/fixtures/settings-resolution.v1.json"
     ))
     .unwrap();
     let settings = LlmSettings::from_json_str(&fixture["settings"].to_string()).unwrap();
@@ -231,4 +231,96 @@ fn partial_effort_override_preserves_legacy_flags_and_rejects_invalid_metadata()
     raw["backends"]["deepseek"]["models"]["deepseek-flash"]["capabilities"]["reasoning_efforts"] =
         json!([" "]);
     assert!(LlmSettings::from_json_str(&raw.to_string()).is_err());
+}
+
+#[test]
+fn gemini_wire_parameters_preserve_legacy_models_and_inputs() {
+    for model in [
+        "gemini-3.8-flash",
+        "google/gemini-4-flash",
+        "gemini-2.5-flash",
+        "gpt-5.5",
+    ] {
+        for stream in [false, true] {
+            for nested in [false, true] {
+                let client =
+                    OpenAiCompatibleChatClient::new(model, "https://example.invalid", "test-key");
+                let mut request = ChatRequest::new(model, vec![]);
+                request.options.temperature = Some(0.3);
+                request.options.top_p = Some(0.7);
+                request.options.stream = Some(stream);
+                let google = json!({"google": {"thinking_config": {"thinkingBudget": 1024, "thinkingLevel": "high", "include_thoughts": true}}});
+                request.extra_body = if nested {
+                    json!({"extra_body": google})
+                } else {
+                    google.clone()
+                };
+                for (key, value) in [
+                    ("temperature", json!(0.4)),
+                    ("top_p", json!(0.8)),
+                    ("top_k", json!(20)),
+                    ("topP", json!(0.8)),
+                    ("topK", json!(20)),
+                ] {
+                    request.extra_body[key] = value;
+                }
+                let original = request.extra_body.clone();
+                let sent = client.to_openai_json(&request).unwrap();
+                let modern = model.contains("gemini-3") || model.contains("gemini-4");
+                for key in ["temperature", "top_p", "top_k", "topP", "topK"] {
+                    assert_eq!(sent.get(key).is_none(), modern);
+                }
+                let thinking = &(if nested { &sent["extra_body"] } else { &sent })["google"]
+                    ["thinking_config"];
+                assert_eq!(
+                    thinking,
+                    &if modern {
+                        json!({"thinking_level": "high", "include_thoughts": true})
+                    } else {
+                        google["google"]["thinking_config"].clone()
+                    }
+                );
+                assert_eq!(request.extra_body, original);
+                request.extra_body = json!({"google": {"thinking_config": {"thinking_budget": -1, "include_thoughts": true}}});
+                let sent = client.to_openai_json(&request).unwrap();
+                assert_eq!(
+                    sent["google"]["thinking_config"]
+                        .get("thinking_budget")
+                        .is_none(),
+                    modern
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn gemini_level_conflicts_and_minimal_are_rejected() {
+    for model in ["gemini-3.7-flash", "gemini-3.8-flash"] {
+        let client = OpenAiCompatibleChatClient::new(model, "https://example.invalid", "test-key")
+            .with_capability_policy(CapabilityPolicy::Strict);
+        let mut request = ChatRequest::new(model, vec![]);
+        request.options.reasoning_effort = Some("minimal".into());
+        assert!(client.to_openai_json(&request).is_err());
+        for effort in ["low", "medium", "high"] {
+            request.options.reasoning_effort = Some(effort.into());
+            assert_eq!(
+                client.to_openai_json(&request).unwrap()["reasoning_effort"],
+                effort
+            );
+        }
+        request.extra_body = json!({"google": {"thinking_config": {"thinkingLevel": "high"}}});
+        assert!(client
+            .to_openai_json(&request)
+            .unwrap_err()
+            .to_string()
+            .contains("conflicts"));
+        request.options.reasoning_effort = None;
+        request.extra_body = json!({"google": {"thinking_config": {"thinkingLevel": "high", "thinking_level": "low"}}});
+        assert!(client
+            .to_openai_json(&request)
+            .unwrap_err()
+            .to_string()
+            .contains("Conflicting Gemini"));
+    }
 }

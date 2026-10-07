@@ -466,7 +466,7 @@ use vv_llm::utilities::{
 vv-llm-rs/
   Cargo.toml
   crates/vv-llm/
-    contract/v1.2.1/      # locked language-neutral schemas, fixtures, and catalog
+    contract/v1.2.2/      # locked language-neutral schemas, fixtures, and catalog
     src/
       chat_clients/       # Chat clients, stream normalization, Vertex auth
       contract.rs         # contract metadata and embedded manifest/lock accessors
@@ -495,8 +495,8 @@ The crate exposes `contract_metadata()`, `contract_manifest_json()`, and
 default; synchronization requires an explicit source:
 
 ```bash
-python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.2.1
-VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.2.1 python scripts/sync_contract.py
+python scripts/sync_contract.py --source /secure/path/vv-llm-contract/dist/release-v1.2.2
+VV_LLM_CONTRACT_SOURCE=/secure/path/vv-llm-contract/dist/release-v1.2.2 python scripts/sync_contract.py
 ```
 
 `python scripts/sync_contract.py --check` validates the packaged contract copy.
@@ -520,3 +520,14 @@ Releases are published to crates.io by the tag workflow documented in [`docs/REL
 ## License
 
 MIT
+
+
+### Gemini generation parameters
+
+For Gemini 3 and later, chat adapters omit `temperature`, `top_p`, `top_k`,
+and `thinking_budget` (including camelCase spellings and nested provider
+overrides). Budget-only requests use the model default; no numeric budget-to-level
+mapping is inferred. Use `reasoning_effort` or Google `thinking_config.thinking_level`
+for explicit control, but not both. Gemini 3.7 Flash and 3.8 Flash expose
+low/medium/high; minimal is unsupported. Gemini 2.5 retains its budget and sampling
+behavior. Input objects are not mutated.

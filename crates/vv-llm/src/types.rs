@@ -840,7 +840,7 @@ fn canonical_chat_request_validator() -> Result<&'static jsonschema::Validator, 
     VALIDATOR
         .get_or_init(|| {
             let schema: serde_json::Value = serde_json::from_str(include_str!(
-                "../contract/v1.2.1/schemas/chat-request.v1.schema.json"
+                "../contract/v1.2.2/schemas/chat-request.v1.schema.json"
             ))
             .map_err(|error| format!("failed to parse canonical chat request schema: {error}"))?;
             jsonschema::options()

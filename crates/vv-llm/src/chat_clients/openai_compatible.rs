@@ -115,6 +115,7 @@ impl OpenAiCompatibleChatClient {
         let mut json = serde_json::to_value(openai_request)?;
         merge_openai_request_extensions(&mut json, request);
         merge_extra_body(&mut json, &body);
+        reasoning::normalize_gemini_body(model, &mut json)?;
         Ok(json)
     }
 

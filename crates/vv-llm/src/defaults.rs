@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::{collections::HashMap, sync::OnceLock};
 
 const DEFAULT_CHAT_CATALOG_JSON: &str =
-    include_str!("../contract/v1.2.1/catalog/default-chat-catalog.json");
+    include_str!("../contract/v1.2.2/catalog/default-chat-catalog.json");
 
 #[derive(Debug, Deserialize)]
 struct DefaultChatCatalog {

@@ -70,6 +70,8 @@ pub(crate) fn resolve_body(request: &ChatRequest, protocol: &str) -> Result<Valu
             if let Some(thinking) = config.get("thinking_config") {
                 if thinking.get("thinking_level").is_some()
                     || thinking.get("thinking_budget").is_some()
+                    || thinking.get("thinkingLevel").is_some()
+                    || thinking.get("thinkingBudget").is_some()
                 {
                     return Err(VvLlmError::Configuration(
                         "reasoning_effort conflicts with Gemini thinking_level/thinking_budget"
@@ -142,4 +144,52 @@ fn merge_thinking(target: &mut Value, addition: &Value) -> Result<(), VvLlmError
             "Conflicting reasoning control: thinking".to_string(),
         )),
     }
+}
+
+/// Gemini 3+ uses thinking levels and the provider's default sampling profile.
+pub(super) fn normalize_gemini_body(model: &str, body: &mut Value) -> Result<(), VvLlmError> {
+    let model = model
+        .rsplit('/')
+        .next()
+        .unwrap_or(model)
+        .to_ascii_lowercase();
+    let modern = model
+        .strip_prefix("gemini-")
+        .and_then(|suffix| suffix.split(['.', '-']).next())
+        .and_then(|major| major.parse::<u32>().ok())
+        .is_some_and(|major| major >= 3);
+    if !modern {
+        return Ok(());
+    }
+    let Some(object) = body.as_object_mut() else {
+        return Ok(());
+    };
+    for key in [
+        "temperature",
+        "top_p",
+        "top_k",
+        "topP",
+        "topK",
+        "thinking_budget",
+        "thinkingBudget",
+    ] {
+        object.remove(key);
+    }
+    if let Some(level) = object.remove("thinkingLevel") {
+        if object
+            .get("thinking_level")
+            .is_some_and(|existing| existing != &level)
+        {
+            return Err(VvLlmError::Configuration(
+                "Conflicting Gemini thinking_level values".into(),
+            ));
+        }
+        object.insert("thinking_level".into(), level);
+    }
+    for key in ["extra_body", "google", "thinking_config"] {
+        if let Some(value) = object.get_mut(key) {
+            normalize_gemini_body(&model, value)?;
+        }
+    }
+    Ok(())
 }
