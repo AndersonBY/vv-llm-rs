@@ -828,6 +828,53 @@ fn default_zhipuai_catalog_distinguishes_efforts_aliases_and_thinking() {
 }
 
 #[test]
+fn default_gemini_catalog_exposes_argon_parameters() {
+    let settings = LlmSettings::from_json_str("{}").unwrap();
+    let model = &settings.backends["gemini"].models["gemini-4-argon"];
+    assert_eq!(model.id, "gemini-4-argon");
+    assert_eq!(model.context_length, Some(1_048_576));
+    assert_eq!(model.max_output_tokens, Some(65_536));
+    assert_eq!(model.function_call_available, Some(true));
+    assert_eq!(model.response_format_available, Some(true));
+    assert_eq!(model.native_multimodal, Some(true));
+    let capabilities = model.capabilities();
+    assert!(capabilities.tools);
+    assert_eq!(
+        capabilities.structured_output,
+        vv_llm::StructuredOutputCapability::JsonSchema
+    );
+    assert_eq!(capabilities.input_modalities.len(), 4);
+    for modality in [
+        vv_llm::Modality::Text,
+        vv_llm::Modality::Image,
+        vv_llm::Modality::Video,
+        vv_llm::Modality::Audio,
+    ] {
+        assert!(capabilities.input_modalities.contains(&modality));
+    }
+    assert_eq!(
+        capabilities.reasoning_efforts,
+        Some(vec![
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string()
+        ])
+    );
+    assert!(capabilities.reasoning_effort_aliases.is_none());
+    for effort in ["low", "medium", "high"] {
+        capabilities
+            .validate_reasoning_effort(&model.id, Some(effort), vv_llm::CapabilityPolicy::Strict)
+            .unwrap();
+    }
+    assert!(capabilities
+        .validate_reasoning_effort(&model.id, Some("none"), vv_llm::CapabilityPolicy::Strict)
+        .is_err());
+    assert!(capabilities
+        .validate_reasoning_effort(&model.id, Some("minimal"), vv_llm::CapabilityPolicy::Strict)
+        .is_err());
+}
+
+#[test]
 fn default_anthropic_catalog_exposes_haiku_55_parameters() {
     let settings = LlmSettings::from_json_str("{}").unwrap();
     let model = settings
