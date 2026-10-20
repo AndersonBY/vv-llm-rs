@@ -572,6 +572,11 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
         .get("minimax")
         .and_then(|backend| backend.models.get("MiniMax-M3"))
         .expect("MiniMax-M3 should come from the Python default catalog");
+    let minimax_flash = settings
+        .backends
+        .get("minimax")
+        .and_then(|backend| backend.models.get("MiniMax-M3.1-Flash"))
+        .expect("MiniMax-M3.1-Flash should come from the Python default catalog");
     let ernie_51 = settings
         .backends
         .get("ernie")
@@ -662,6 +667,11 @@ fn loads_python_default_chat_catalog_for_empty_settings() {
     assert_eq!(minimax.function_call_available, Some(true));
     assert_eq!(minimax.response_format_available, Some(true));
     assert_eq!(minimax.native_multimodal, Some(true));
+    assert_eq!(minimax_flash.context_length, Some(1_000_000));
+    assert_eq!(minimax_flash.max_output_tokens, Some(512_000));
+    assert_eq!(minimax_flash.function_call_available, Some(true));
+    assert_eq!(minimax_flash.response_format_available, Some(false));
+    assert_eq!(minimax_flash.native_multimodal, Some(true));
     assert_eq!(ernie_51.context_length, Some(128_000));
     assert_eq!(ernie_51.max_output_tokens, Some(65_536));
     assert_eq!(ernie_51.response_format_available, Some(true));
