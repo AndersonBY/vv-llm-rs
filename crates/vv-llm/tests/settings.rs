@@ -1217,3 +1217,43 @@ fn settings_preserve_python_endpoint_metadata_fields() {
         Some("value")
     );
 }
+
+#[test]
+fn default_moonshot_catalog_exposes_kimi_k31_pro_capabilities() {
+    let settings = LlmSettings::from_json_str("{}").unwrap();
+    let model = &settings.backends["moonshot"].models["kimi-k3.1-pro"];
+    assert_eq!(model.id, "kimi-k3.1-pro");
+    assert_eq!(model.context_length, Some(1_048_576));
+    assert_eq!(model.max_output_tokens, Some(1_048_576));
+    assert_eq!(model.function_call_available, Some(true));
+    assert_eq!(model.response_format_available, Some(true));
+    assert_eq!(model.native_multimodal, Some(true));
+    let capabilities = model.capabilities();
+    assert!(capabilities.tools);
+    assert_eq!(
+        capabilities.structured_output,
+        vv_llm::StructuredOutputCapability::JsonSchema
+    );
+    assert_eq!(
+        capabilities.thinking,
+        vv_llm::ThinkingCapability::AlwaysEnabled
+    );
+    assert_eq!(
+        capabilities.input_modalities,
+        vec![
+            vv_llm::Modality::Text,
+            vv_llm::Modality::Image,
+            vv_llm::Modality::Video
+        ]
+        .into_iter()
+        .collect()
+    );
+    assert_eq!(
+        capabilities.reasoning_efforts,
+        Some(vec![
+            "low".to_string(),
+            "high".to_string(),
+            "max".to_string()
+        ])
+    );
+}

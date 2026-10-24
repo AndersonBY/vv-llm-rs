@@ -84,7 +84,7 @@ async fn run() -> Result<Value, VvLlmError> {
     let resolved = settings.resolve_decision_model("openai", &model)?;
     let client = create_decision_client_from_resolved(&resolved)?;
     let fixture: Value = serde_json::from_str(include_str!(
-        "../contract/v1.3.2/fixtures/decisions.v1.json"
+        "../contract/v1.3.3/fixtures/decisions.v1.json"
     ))?;
     let mut request = DecisionRequest::from_contract(&fixture["request"])?;
     request.model.clear();
