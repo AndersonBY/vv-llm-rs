@@ -55,7 +55,9 @@ Implementation notes:
 - `ThinkingPreference` is normalized into that existing field before the adapter runs.
 - Maps non-streaming text responses, input/output usage, cache reads, cache creation, and raw usage into `ChatResponse`.
 - Accumulates direct JSON stream usage across `message_start` and `message_delta`, retaining initial input/cache values with the final output count.
-- Direct streaming currently exposes normalized text deltas. The upstream crate does not expose all tool/thinking stream request fields, so full tool and reasoning streaming is handled through the Bedrock path where available.
+- Requests with tools, tool choice, thinking, reasoning effort, extra body, or text cache controls use the direct JSON transport. Its streamed tool starts and argument fragments preserve the provider's content-block index. The initial `input: {}` is a placeholder and emits empty argument text; actual `input_json_delta` fragments are concatenated by consumers. Missing or malformed indices remain absent rather than being synthesized.
+- The basic SDK streaming path exposes text deltas; it does not expose all tool/thinking stream fields. Bedrock remains a separate typed Converse adapter.
+- Offline normalizer regressions cover interleaved tool indices, assembled JSON arguments, and absent/invalid indices. See the [streaming event format](https://platform.claude.com/docs/en/build-with-claude/streaming) and [input accumulation semantics](https://platform.claude.com/docs/en/agents-and-tools/tool-use/fine-grained-tool-streaming).
 
 Do not bypass the SDK with raw HTTP unless a required feature cannot be represented with the SDK and the gap is documented in tests and docs.
 

@@ -1048,6 +1048,100 @@ mod tests {
     }
 
     #[test]
+    fn anthropic_stream_tool_indices_preserve_interleaved_fragments() {
+        let mut usage = None;
+        let events = [
+            json!({"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "a", "name": "lookup", "input": {}}}),
+            json!({"type": "content_block_start", "index": 3, "content_block": {"type": "tool_use", "id": "b", "name": "lookup", "input": {}}}),
+            json!({"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "{\"city\":\"Paris\"}"}}),
+            json!({"type": "content_block_delta", "index": 3, "delta": {"type": "input_json_delta", "partial_json": "{\"city\":\"Tokyo\"}"}}),
+        ];
+        let mut arguments = std::collections::BTreeMap::<usize, String>::new();
+        for (event, index) in events.into_iter().zip([0, 3, 0, 3]) {
+            let normalized = normalize_anthropic_stream_json(event, &mut usage)
+                .unwrap()
+                .unwrap();
+            assert_eq!(normalized.tool_calls.len(), 1);
+            let call = &normalized.tool_calls[0];
+            assert_eq!(call.index, Some(index));
+            arguments
+                .entry(index)
+                .or_default()
+                .push_str(&call.arguments);
+        }
+        assert_eq!(
+            serde_json::from_str::<Value>(&arguments[&0]).unwrap(),
+            json!({"city": "Paris"})
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&arguments[&3]).unwrap(),
+            json!({"city": "Tokyo"})
+        );
+    }
+
+    #[test]
+    fn anthropic_stream_tool_start_input_is_a_placeholder_not_argument_text() {
+        let mut usage = None;
+        let start = normalize_anthropic_stream_json(
+            json!({
+                "type": "content_block_start", "index": 7,
+                "content_block": {"type": "tool_use", "id": "a", "name": "lookup", "input": {}}
+            }),
+            &mut usage,
+        )
+        .unwrap()
+        .unwrap();
+        let continuation = normalize_anthropic_stream_json(
+            json!({
+                "type": "content_block_delta", "index": 7,
+                "delta": {"type": "input_json_delta", "partial_json": "{\"city\":\"Paris\"}"}
+            }),
+            &mut usage,
+        )
+        .unwrap()
+        .unwrap();
+        let accumulated = format!(
+            "{}{}",
+            start.tool_calls[0].arguments, continuation.tool_calls[0].arguments
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&accumulated).unwrap(),
+            json!({"city": "Paris"})
+        );
+        // Completion conversion must still retain an actual empty input object.
+        assert_eq!(
+            tool_call_from_anthropic_block(&json!({"id":"a", "name":"lookup", "input":{}}))
+                .unwrap()
+                .arguments,
+            "{}"
+        );
+    }
+
+    #[test]
+    fn anthropic_stream_tool_missing_or_invalid_index_is_not_synthesized() {
+        for index in [
+            None,
+            Some(Value::Null),
+            Some(json!(-1)),
+            Some(json!("3")),
+            Some(json!(1.5)),
+        ] {
+            for mut event in [
+                json!({"type":"content_block_start", "content_block":{"type":"tool_use", "id":"a", "name":"lookup", "input":{}}}),
+                json!({"type":"content_block_delta", "delta":{"type":"input_json_delta", "partial_json":"{}"}}),
+            ] {
+                if let Some(value) = &index {
+                    event["index"] = value.clone();
+                }
+                let normalized = normalize_anthropic_stream_json(event, &mut None)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(normalized.tool_calls[0].index, None);
+            }
+        }
+    }
+
+    #[test]
     fn anthropic_stream_accumulates_start_cache_usage_and_final_output_usage() {
         let mut accumulated_usage = None;
         let start = normalize_anthropic_stream_json(
@@ -1233,6 +1327,10 @@ fn normalize_anthropic_stream_json(
     value: Value,
     accumulated_usage: &mut Option<ChatUsage>,
 ) -> Result<Option<ChatStreamDelta>, VvLlmError> {
+    let block_index = value
+        .get("index")
+        .and_then(Value::as_u64)
+        .and_then(|index| usize::try_from(index).ok());
     match value
         .get("type")
         .and_then(Value::as_str)
@@ -1262,10 +1360,19 @@ fn normalize_anthropic_stream_json(
                     content,
                     ..Default::default()
                 })),
-                "tool_use" => Ok(Some(ChatStreamDelta {
-                    tool_calls: vec![tool_call_from_anthropic_block(block)?],
-                    ..Default::default()
-                })),
+                "tool_use" => {
+                    let mut tool_call = tool_call_from_anthropic_block(block)?;
+                    tool_call.index = block_index;
+                    // Streaming input:{} is a placeholder, not a JSON prefix.
+                    // Completion conversion retains the actual input object.
+                    if tool_call.arguments == "{}" {
+                        tool_call.arguments.clear();
+                    }
+                    Ok(Some(ChatStreamDelta {
+                        tool_calls: vec![tool_call],
+                        ..Default::default()
+                    }))
+                }
                 _ => Ok(None),
             }
         }
@@ -1287,7 +1394,7 @@ fn normalize_anthropic_stream_json(
                         id: String::new(),
                         name: String::new(),
                         arguments: value_to_string(delta.get("partial_json")),
-                        index: None,
+                        index: block_index,
                         extra_content: None,
                         extensions: crate::JsonExtensions::new(),
                     }],
