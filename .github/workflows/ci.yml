@@ -1,0 +1,37 @@
+name: Rust quality
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check vendored vv-llm contract
+        run: |
+          python3 scripts/sync_contract.py --check
+          python3 -m unittest scripts/test_sync_contract.py
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Test
+        run: cargo test
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Package dry run
+        run: cargo publish --manifest-path crates/vv-llm/Cargo.toml --dry-run

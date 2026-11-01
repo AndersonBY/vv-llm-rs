@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.4 - 2026-11-01
+
+- Fix direct Anthropic JSON streaming to retain content-block indices and omit the empty initial input placeholder from argument text; completion conversion is unchanged.
+
+- Prepare local contract 1.3.4 fixture adoption for reordered/sparse streamed tool indices; no publication is implied.
+- Add regression coverage for interleaved ID-less OpenAI-compatible tool deltas; the adapter already preserves provider indices.
+
 ## 0.8.3 - 2026-10-24
 
 - Adopt shared contract 1.3.3 and catalog revision 22 with `kimi-k3.1-pro`: 1,048,576-token

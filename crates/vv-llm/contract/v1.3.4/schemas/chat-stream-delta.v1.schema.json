@@ -116,7 +116,8 @@
         },
         "index": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Provider tool-call index; preserve explicit values including zero rather than renumbering by chunk-local array position."
         },
         "extra_content": {
           "$ref": "#/$defs/json_value"

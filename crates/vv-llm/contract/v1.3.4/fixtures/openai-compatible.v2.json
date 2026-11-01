@@ -281,6 +281,99 @@
           {
             "index": 0,
             "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "id": "call_parallel_0",
+                  "type": "function",
+                  "function": {
+                    "name": "lookup_0",
+                    "arguments": "fragment_0"
+                  }
+                },
+                {
+                  "index": 7,
+                  "id": "call_parallel_7",
+                  "type": "function",
+                  "function": {
+                    "name": "lookup_7",
+                    "arguments": "fragment_7"
+                  }
+                }
+              ]
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-stream-fixture",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "deepseek-v4-pro",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 7,
+                  "id": "call_parallel_7",
+                  "type": "function",
+                  "function": {
+                    "name": "lookup_7",
+                    "arguments": "fragment_7"
+                  }
+                },
+                {
+                  "index": 0,
+                  "id": "call_parallel_0",
+                  "type": "function",
+                  "function": {
+                    "name": "lookup_0",
+                    "arguments": "fragment_0"
+                  }
+                }
+              ]
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-stream-fixture",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "deepseek-v4-pro",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 7,
+                  "id": "call_parallel_7",
+                  "type": "function",
+                  "function": {
+                    "name": "lookup_7",
+                    "arguments": "fragment_7"
+                  }
+                }
+              ]
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-stream-fixture",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "deepseek-v4-pro",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
               "content": "lo"
             },
             "finish_reason": "stop"
@@ -314,6 +407,54 @@
             "name": "lookup",
             "arguments": "{\"query\"",
             "index": 0
+          }
+        ]
+      },
+      {
+        "content": "",
+        "reasoning_content": "",
+        "tool_calls": [
+          {
+            "id": "call_parallel_0",
+            "name": "lookup_0",
+            "arguments": "fragment_0",
+            "index": 0
+          },
+          {
+            "id": "call_parallel_7",
+            "name": "lookup_7",
+            "arguments": "fragment_7",
+            "index": 7
+          }
+        ]
+      },
+      {
+        "content": "",
+        "reasoning_content": "",
+        "tool_calls": [
+          {
+            "id": "call_parallel_7",
+            "name": "lookup_7",
+            "arguments": "fragment_7",
+            "index": 7
+          },
+          {
+            "id": "call_parallel_0",
+            "name": "lookup_0",
+            "arguments": "fragment_0",
+            "index": 0
+          }
+        ]
+      },
+      {
+        "content": "",
+        "reasoning_content": "",
+        "tool_calls": [
+          {
+            "id": "call_parallel_7",
+            "name": "lookup_7",
+            "arguments": "fragment_7",
+            "index": 7
           }
         ]
       },

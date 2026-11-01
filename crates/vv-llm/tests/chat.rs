@@ -1031,6 +1031,25 @@ fn openai_stream_chunk_json_preserves_tool_call_index() {
 }
 
 #[test]
+fn openai_stream_chunks_preserve_interleaved_idless_tool_indices() {
+    for index in [0, 7, 0, 7] {
+        let chunk = serde_json::json!({
+            "id": "chatcmpl-interleaved", "object": "chat.completion.chunk",
+            "created": 0, "model": "gpt-4o",
+            "choices": [{"index": 0, "delta": {"tool_calls": [{
+                "index": index, "function": {"arguments": "fragment"}
+            }]}, "finish_reason": null}]
+        });
+        let delta = OpenAiCompatibleChatClient::normalize_stream_chunk_json(chunk).unwrap();
+        assert_eq!(delta.tool_calls.len(), 1);
+        assert_eq!(delta.tool_calls[0].index, Some(index));
+        assert_eq!(delta.tool_calls[0].id, "");
+        assert_eq!(delta.tool_calls[0].name, "");
+        assert_eq!(delta.tool_calls[0].arguments, "fragment");
+    }
+}
+
+#[test]
 fn openai_stream_chunk_json_preserves_tool_call_extra_content() {
     let chunk = serde_json::json!({
         "id": "chatcmpl-test",
