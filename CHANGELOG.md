@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.5 - 2026-11-10
+
+- Adopt shared contract 1.3.5 and catalog revision 23 with `gpt-6.1-terra`: 1,050,000-token context, 128,000-token maximum output, text/image input, structured output, and none/low/medium/high/xhigh/max reasoning efforts.
+- Tool calling requires the Responses API; existing runtime transport support is unchanged.
+
 ## 0.8.4 - 2026-11-01
 
 - Fix direct Anthropic JSON streaming to retain content-block indices and omit the empty initial input placeholder from argument text; completion conversion is unchanged.
