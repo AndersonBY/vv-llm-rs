@@ -372,12 +372,12 @@ fn validate_schema(value: &Value, response: bool) -> Result<(), VvLlmError> {
     let (slot, source) = if response {
         (
             &RESPONSE,
-            include_str!("../../contract/v1.3.5/schemas/decision-response.v1.schema.json"),
+            include_str!("../../contract/v1.3.6/schemas/decision-response.v1.schema.json"),
         )
     } else {
         (
             &REQUEST,
-            include_str!("../../contract/v1.3.5/schemas/decision-request.v1.schema.json"),
+            include_str!("../../contract/v1.3.6/schemas/decision-request.v1.schema.json"),
         )
     };
     let validator = slot.get_or_init(|| {

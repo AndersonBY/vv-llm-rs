@@ -6,7 +6,7 @@ use vv_llm::{
 
 fn fixture() -> Value {
     serde_json::from_str(include_str!(
-        "../contract/v1.3.5/fixtures/decisions.v1.json"
+        "../contract/v1.3.6/fixtures/decisions.v1.json"
     ))
     .unwrap()
 }

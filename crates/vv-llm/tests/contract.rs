@@ -9,12 +9,12 @@ use vv_llm::{
 };
 
 const CONTRACT_CONSUMER_LOCK_BYTES: &[u8] =
-    include_bytes!("../contract/v1.3.5/consumer-lock.v1.json");
+    include_bytes!("../contract/v1.3.6/consumer-lock.v1.json");
 
 #[test]
 fn catalog_exposes_gpt_6_1_terra() {
     let catalog: Value = serde_json::from_str(include_str!(
-        "../contract/v1.3.5/catalog/default-chat-catalog.json"
+        "../contract/v1.3.6/catalog/default-chat-catalog.json"
     ))
     .expect("catalog JSON");
     let terra = &catalog["backends"]["openai"]["models"]["gpt-6.1-terra"];
@@ -32,6 +32,19 @@ fn catalog_exposes_gpt_6_1_terra() {
             "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"]
         })
     );
+}
+
+#[test]
+fn catalog_exposes_gemini_4_carbon() {
+    let catalog: Value = serde_json::from_str(include_str!(
+        "../contract/v1.3.6/catalog/default-chat-catalog.json"
+    ))
+    .expect("catalog JSON");
+    let argon = &catalog["backends"]["gemini"]["models"]["gemini-4-argon"];
+    let carbon = &catalog["backends"]["gemini"]["models"]["gemini-4-carbon"];
+    let mut expected = argon.clone();
+    expected["id"] = Value::String("gemini-4-carbon".to_string());
+    assert_eq!(carbon, &expected);
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -54,7 +67,7 @@ fn exposes_pinned_contract_metadata() {
             catalog_revision: CONTRACT_CATALOG_REVISION,
         }
     );
-    assert_eq!(contract_metadata().version, "1.3.5");
+    assert_eq!(contract_metadata().version, "1.3.6");
 }
 
 #[test]
@@ -63,14 +76,14 @@ fn embeds_manifest_and_consumer_lock() {
     let lock: Value =
         serde_json::from_str(contract_consumer_lock_json()).expect("consumer lock JSON");
 
-    assert_eq!(manifest["contract_version"], "1.3.5");
+    assert_eq!(manifest["contract_version"], "1.3.6");
     assert_eq!(manifest["schema_version"], 2);
     assert_eq!(manifest["fixture_version"], 2);
-    assert_eq!(manifest["catalog_revision"], 23);
-    assert_eq!(lock["contract_version"], "1.3.5");
+    assert_eq!(manifest["catalog_revision"], 24);
+    assert_eq!(lock["contract_version"], "1.3.6");
     assert_eq!(lock["schema_version"], 2);
     assert_eq!(lock["fixture_version"], 2);
-    assert_eq!(lock["catalog_revision"], 23);
+    assert_eq!(lock["catalog_revision"], 24);
     assert!(lock["artifacts"]["catalog/default-chat-catalog.json"].is_string());
     assert!(lock["artifacts"]["fixtures/openai-compatible.v2.json"].is_string());
 }
