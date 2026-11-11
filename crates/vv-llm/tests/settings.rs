@@ -891,6 +891,50 @@ fn default_gemini_catalog_exposes_argon_and_carbon_parameters() {
 }
 
 #[test]
+fn default_anthropic_catalog_exposes_fable_52_parameters() {
+    let settings = LlmSettings::from_json_str("{}").unwrap();
+    let model = &settings.backends["anthropic"].models["claude-fable-5-2"];
+    assert_eq!(model.id, "claude-fable-5-2");
+    assert_eq!(model.context_length, Some(1_000_000));
+    assert_eq!(model.max_output_tokens, Some(128_000));
+    assert_eq!(model.function_call_available, Some(true));
+    assert_eq!(model.response_format_available, Some(false));
+    assert_eq!(model.native_multimodal, Some(true));
+    let capabilities = model.capabilities();
+    assert!(capabilities.tools);
+    assert_eq!(
+        capabilities.thinking,
+        vv_llm::ThinkingCapability::AlwaysEnabled
+    );
+    assert_eq!(capabilities.input_modalities.len(), 2);
+    assert!(capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Text));
+    assert!(capabilities
+        .input_modalities
+        .contains(&vv_llm::Modality::Image));
+    assert_eq!(
+        capabilities.reasoning_efforts,
+        Some(
+            vec!["low", "medium", "high", "xhigh", "max"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        )
+    );
+    for effort in ["low", "medium", "high", "xhigh", "max"] {
+        capabilities
+            .validate_reasoning_effort(&model.id, Some(effort), vv_llm::CapabilityPolicy::Strict)
+            .unwrap();
+    }
+    for effort in ["none", "minimal", "ultra"] {
+        assert!(capabilities
+            .validate_reasoning_effort(&model.id, Some(effort), vv_llm::CapabilityPolicy::Strict)
+            .is_err());
+    }
+}
+
+#[test]
 fn default_anthropic_catalog_exposes_haiku_55_parameters() {
     let settings = LlmSettings::from_json_str("{}").unwrap();
     let model = settings

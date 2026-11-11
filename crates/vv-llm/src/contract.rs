@@ -1,20 +1,20 @@
 //! Metadata and embedded artifacts for the language-neutral vv-llm contract.
 //!
-//! The contract files are vendored under `contract/v1.3.6` and verified by
+//! The contract files are vendored under `contract/v1.3.7` and verified by
 //! `scripts/sync_contract.py`. Runtime consumers can inspect the pinned
 //! metadata without needing to locate files on disk.
 
 /// Contract release represented by the vendored artifact tree.
-pub const CONTRACT_VERSION: &str = "1.3.6";
+pub const CONTRACT_VERSION: &str = "1.3.7";
 /// Version of the language-neutral JSON schemas in this contract release.
 pub const CONTRACT_SCHEMA_VERSION: u32 = 2;
 /// Version of the deterministic protocol/settings fixtures in this release.
 pub const CONTRACT_FIXTURE_VERSION: u32 = 2;
 /// Revision of the default model catalog in this release.
-pub const CONTRACT_CATALOG_REVISION: u32 = 24;
+pub const CONTRACT_CATALOG_REVISION: u32 = 25;
 /// SHA-256 pin for the exact consumer lock embedded in this crate.
 pub const CONTRACT_CONSUMER_LOCK_SHA256: &str =
-    "92d1d0d0c640180fba68fc0753e9f5b3ee4817e23907accbe9d6ad53818533be";
+    "35a10ecae04c8e8e5d661e284e01d27fe823365f531e28d600f7e6d889ac7b1c";
 
 /// A compact, provider-neutral description of the vendored contract release.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,12 +34,12 @@ pub const CONTRACT_METADATA: ContractMetadata = ContractMetadata {
 };
 
 /// The vendored contract manifest, embedded for diagnostics and tooling.
-pub const CONTRACT_MANIFEST_JSON: &str = include_str!("../contract/v1.3.6/manifest.json");
+pub const CONTRACT_MANIFEST_JSON: &str = include_str!("../contract/v1.3.7/manifest.json");
 /// The vendored consumer lock, embedded for diagnostics and tooling.
 pub const CONTRACT_CONSUMER_LOCK_JSON: &str =
-    include_str!("../contract/v1.3.6/consumer-lock.v1.json");
+    include_str!("../contract/v1.3.7/consumer-lock.v1.json");
 /// The vendored artifact checksum index, embedded for diagnostics and tooling.
-pub const CONTRACT_CHECKSUMS: &str = include_str!("../contract/v1.3.6/checksums.sha256");
+pub const CONTRACT_CHECKSUMS: &str = include_str!("../contract/v1.3.7/checksums.sha256");
 
 /// Return metadata for the contract consumed by this crate.
 pub const fn contract_metadata() -> ContractMetadata {
